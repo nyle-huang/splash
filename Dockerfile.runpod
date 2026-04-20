@@ -1,8 +1,10 @@
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
+    VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH \
     HF_HOME=/workspace/.hf_home \
     PCP_OUTPUT_ROOT=/workspace/runtime_outputs \
     PCP_DEVICE=cuda \
@@ -19,14 +21,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libglib2.0-0 \
+    python3 \
+    python3-dev \
     python3-pip \
-    software-properties-common \
- && add-apt-repository ppa:deadsnakes/ppa \
- && apt-get update && apt-get install -y --no-install-recommends \
-    python3.12 \
-    python3.12-dev \
-    python3.12-distutils \
-    python3.12-venv \
+    python3-venv \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace/product_campaign_pipeline
@@ -37,9 +35,10 @@ COPY scripts ./scripts
 COPY docs/context ./docs/context
 COPY data ./data
 
-RUN python3.12 -m pip install --upgrade pip setuptools wheel \
- && python3.12 -m pip install --index-url https://download.pytorch.org/whl/cu124 torch torchvision \
- && python3.12 -m pip install -e ".[generation,vision,storage,service]"
+RUN python3 -m venv /opt/venv \
+ && pip install --upgrade pip setuptools wheel \
+ && pip install --index-url https://download.pytorch.org/whl/cu124 torch torchvision \
+ && pip install -e ".[generation,vision,storage,service]"
 
 RUN mkdir -p /workspace/runtime_outputs /workspace/.hf_home
 
@@ -48,4 +47,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD curl -fsS http://127.0.0.1:8000/healthz || exit 1
 
-CMD ["python3.12", "scripts/run_business_prior_service.py", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "scripts/run_business_prior_service.py", "--host", "0.0.0.0", "--port", "8000"]
