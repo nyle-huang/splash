@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import io
+import logging
 import uuid
 from pathlib import Path
 from typing import Any
@@ -11,16 +12,6 @@ from typing import Any
 from PIL import Image
 from pydantic import ValidationError
 
-from product_campaign_pipeline.flux import (
-    MissingCredentialsError,
-    MissingDependencyError,
-    MissingModelAccessError,
-)
-from product_campaign_pipeline.production import (
-    BusinessPriorInferenceRequest,
-    BusinessPriorInferenceResult,
-    run_business_prior_inference,
-)
 from product_campaign_pipeline.public_api import (
     PublicInferenceRequest,
     PublicInvalidSourceDetails,
@@ -31,21 +22,21 @@ from product_campaign_pipeline.public_api import (
     normalize_public_request_id,
     public_request_file_extension,
 )
-from product_campaign_pipeline.runtime import BusinessPriorRuntimeSettings, RuntimeCache
 
-DEFAULT_RUNTIME_CACHE = RuntimeCache(BusinessPriorRuntimeSettings.from_env())
+LOGGER = logging.getLogger(__name__)
+_DEFAULT_RUNTIME_CACHE: Any | None = None
 
 
 def handle_public_generation_job(
     job: dict[str, Any],
     *,
-    cache: RuntimeCache | None = None,
+    cache: Any | None = None,
 ) -> dict[str, Any]:
     """Handle a single public browser-originated generation job."""
 
-    runtime_cache = cache or DEFAULT_RUNTIME_CACHE
     fallback_request_id = _fallback_request_id(job)
     try:
+        runtime_cache = cache or _get_default_runtime_cache()
         request = PublicInferenceRequest.model_validate(job.get("input", {}))
         request_id = request.request_id or fallback_request_id
         source_image_path = _save_public_source_image(
@@ -53,6 +44,8 @@ def handle_public_generation_job(
             output_root=runtime_cache.settings.output_root,
             request_id=request_id,
         )
+        from product_campaign_pipeline.production import BusinessPriorInferenceRequest
+
         runtime_request = BusinessPriorInferenceRequest(
             image_path=str(source_image_path),
             product_title=request.product_title,
@@ -95,13 +88,6 @@ def handle_public_generation_job(
             summary="The request payload failed validation and could not be processed.",
             error_code="invalid_request",
         )
-    except (MissingDependencyError, MissingCredentialsError, MissingModelAccessError):
-        worker_result = WorkerGenerationResult(
-            status="failed",
-            request_id=fallback_request_id,
-            summary="The generation runtime is currently unavailable.",
-            error_code="runtime_unavailable",
-        )
     except FileNotFoundError:
         worker_result = WorkerGenerationResult(
             status="failed",
@@ -109,17 +95,58 @@ def handle_public_generation_job(
             summary="The uploaded image could not be staged for generation.",
             error_code="input_staging_failed",
         )
-    except Exception:
-        worker_result = WorkerGenerationResult(
-            status="failed",
-            request_id=fallback_request_id,
-            summary="The generation job failed before a final image could be produced.",
-            error_code="inference_failed",
-        )
+    except Exception as exc:
+        LOGGER.exception("Runpod generation job failed before producing a final image.")
+        if _is_runtime_unavailable_exception(exc):
+            worker_result = WorkerGenerationResult(
+                status="failed",
+                request_id=fallback_request_id,
+                summary="The generation runtime is currently unavailable.",
+                error_code="runtime_unavailable",
+            )
+        else:
+            worker_result = WorkerGenerationResult(
+                status="failed",
+                request_id=fallback_request_id,
+                summary="The generation job failed before a final image could be produced.",
+                error_code="inference_failed",
+            )
     return worker_result.model_dump(mode="json")
 
 
-def _worker_result_from_inference(result: BusinessPriorInferenceResult) -> WorkerGenerationResult:
+def _get_default_runtime_cache() -> Any:
+    global _DEFAULT_RUNTIME_CACHE
+    if _DEFAULT_RUNTIME_CACHE is None:
+        from product_campaign_pipeline.runtime import BusinessPriorRuntimeSettings, RuntimeCache
+
+        _DEFAULT_RUNTIME_CACHE = RuntimeCache(BusinessPriorRuntimeSettings.from_env())
+    return _DEFAULT_RUNTIME_CACHE
+
+
+def run_business_prior_inference(request: Any, **kwargs: Any) -> Any:
+    """Lazy proxy kept patchable for tests while avoiding startup imports."""
+
+    from product_campaign_pipeline.production import run_business_prior_inference as _run
+
+    return _run(request, **kwargs)
+
+
+def _is_runtime_unavailable_exception(exc: Exception) -> bool:
+    try:
+        from product_campaign_pipeline.flux import (
+            MissingCredentialsError,
+            MissingDependencyError,
+            MissingModelAccessError,
+        )
+    except Exception:
+        return False
+    return isinstance(
+        exc,
+        (MissingDependencyError, MissingCredentialsError, MissingModelAccessError),
+    )
+
+
+def _worker_result_from_inference(result: Any) -> WorkerGenerationResult:
     request_id = result.request_id
     if result.status == "invalid_source":
         invalid_source = PublicInvalidSourceDetails(
@@ -127,12 +154,13 @@ def _worker_result_from_inference(result: BusinessPriorInferenceResult) -> Worke
             issues=list(result.source_validity_issues),
             score=result.source_validity_score,
         )
-        return WorkerGenerationResult(
+        worker_result = WorkerGenerationResult(
             status="invalid_source",
             request_id=request_id,
             summary=build_public_invalid_source_summary(invalid_source),
             invalid_source=invalid_source,
         )
+        return worker_result
 
     output_path = Path(result.output_path or "")
     if not output_path.exists():
@@ -202,7 +230,7 @@ def start_runpod_worker() -> None:
     try:
         import runpod
     except ImportError as exc:  # pragma: no cover - deployment-only code path
-        raise MissingDependencyError(
+        raise RuntimeError(
             "Runpod serverless dependencies are missing. "
             "Install the worker image requirements first."
         ) from exc
