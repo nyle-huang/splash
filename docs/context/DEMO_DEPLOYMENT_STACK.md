@@ -110,6 +110,23 @@ Required worker environment variables:
 - `PCP_ANALYSIS_DEVICE`
 - `PCP_LOCALIZATION_DEVICE`
 
+For the cost-optimized public demo, Runpod should attach a `100GB` network
+volume at `/runpod-volume`. The serverless image defaults `HF_HOME` to
+`/runpod-volume/hf_home` and `PCP_OUTPUT_ROOT` to
+`/runpod-volume/runtime_outputs` so model downloads and runtime artifacts survive
+worker cold starts. Direct Runpod API calls can populate the cache with:
+
+```json
+{
+  "input": {
+    "_internal_warmup": true,
+    "include_generation": true
+  }
+}
+```
+
+This internal warmup payload is not part of the browser-facing broker contract.
+
 Recommended startup command:
 
 ```bash

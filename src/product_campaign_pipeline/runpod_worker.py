@@ -35,6 +35,13 @@ def handle_public_generation_job(
     """Handle a single public browser-originated generation job."""
 
     fallback_request_id = _fallback_request_id(job)
+    if _is_internal_warmup_job(job):
+        return _handle_internal_warmup_job(
+            job,
+            cache=cache,
+            request_id=fallback_request_id,
+        )
+
     try:
         runtime_cache = cache or _get_default_runtime_cache()
         request = PublicInferenceRequest.model_validate(job.get("input", {}))
@@ -121,6 +128,63 @@ def _get_default_runtime_cache() -> Any:
 
         _DEFAULT_RUNTIME_CACHE = RuntimeCache(BusinessPriorRuntimeSettings.from_env())
     return _DEFAULT_RUNTIME_CACHE
+
+
+def _handle_internal_warmup_job(
+    job: dict[str, Any],
+    *,
+    cache: Any | None,
+    request_id: str,
+) -> dict[str, Any]:
+    """Populate model/runtime caches from a direct Runpod API job."""
+
+    runtime_cache = cache or _get_default_runtime_cache()
+    status = runtime_cache.warmup(include_generation=_warmup_include_generation(job))
+    succeeded = status.status == "ready"
+    return {
+        "status": "succeeded" if succeeded else "failed",
+        "request_id": request_id,
+        "summary": (
+            "Runtime warmup completed."
+            if succeeded
+            else "Runtime warmup completed with errors; inspect warmup details."
+        ),
+        "warmup": status.model_dump(mode="json"),
+    }
+
+
+def _is_internal_warmup_job(job: dict[str, Any]) -> bool:
+    job_input = job.get("input")
+    return isinstance(job_input, dict) and bool(
+        job_input.get("_internal_warmup") or job_input.get("warmup")
+    )
+
+
+def _warmup_include_generation(job: dict[str, Any]) -> bool:
+    job_input = job.get("input")
+    if not isinstance(job_input, dict):
+        return False
+    raw_value = job_input.get("include_generation", True)
+    if isinstance(raw_value, str):
+        return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(raw_value)
+
+
+def _warmup_default_runtime_on_start_if_configured() -> None:
+    runtime_cache = _get_default_runtime_cache()
+    settings = runtime_cache.settings
+    if not (settings.warmup_on_start or settings.warmup_generation_on_start):
+        return
+
+    LOGGER.info(
+        "Starting Runpod worker runtime warmup. include_generation=%s",
+        settings.warmup_generation_on_start,
+    )
+    status = runtime_cache.warmup(include_generation=settings.warmup_generation_on_start)
+    if status.status == "ready":
+        LOGGER.info("Runpod worker runtime warmup completed.")
+    else:
+        LOGGER.warning("Runpod worker runtime warmup degraded: %s", status.warmup_error)
 
 
 def run_business_prior_inference(request: Any, **kwargs: Any) -> Any:
@@ -235,6 +299,7 @@ def start_runpod_worker() -> None:
             "Install the worker image requirements first."
         ) from exc
 
+    _warmup_default_runtime_on_start_if_configured()
     runpod.serverless.start({"handler": handle_public_generation_job})
 
 

@@ -7,7 +7,11 @@ from PIL import Image
 
 from product_campaign_pipeline.production import BusinessPriorInferenceResult
 from product_campaign_pipeline.runpod_worker import handle_public_generation_job
-from product_campaign_pipeline.runtime import BusinessPriorRuntimeSettings, RuntimeCache
+from product_campaign_pipeline.runtime import (
+    BusinessPriorRuntimeSettings,
+    RuntimeCache,
+    WarmupStatus,
+)
 
 SMALL_PNG_BASE64 = (
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZV0kAAAAASUVORK5CYII="
@@ -121,3 +125,32 @@ def test_handle_public_generation_job_returns_invalid_source_details(tmp_path: P
     assert payload["invalid_source"]["reason"] == "invalid_source_photo"
     assert payload["invalid_source"]["issues"] == ["localization_failed", "low_subject_confidence"]
     assert "input-quality checks" in payload["summary"]
+
+
+def test_handle_public_generation_job_runs_internal_warmup(tmp_path: Path) -> None:
+    cache = _runtime_cache(tmp_path)
+    warmup_status = WarmupStatus(
+        status="ready",
+        retrieval_index_loaded=True,
+        localization_pipeline_loaded=True,
+        analysis_backbone_loaded=True,
+        generation_client_initialized=True,
+        generation_pipeline_loaded=True,
+    )
+
+    with patch.object(cache, "warmup", return_value=warmup_status) as warmup_mock:
+        payload = handle_public_generation_job(
+            {
+                "id": "warmup-job",
+                "input": {
+                    "_internal_warmup": True,
+                    "include_generation": True,
+                },
+            },
+            cache=cache,
+        )
+
+    assert payload["status"] == "succeeded"
+    assert payload["request_id"] == "warmup-job"
+    assert payload["warmup"]["generation_pipeline_loaded"] is True
+    warmup_mock.assert_called_once_with(include_generation=True)
