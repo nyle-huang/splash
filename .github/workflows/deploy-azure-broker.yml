@@ -2,17 +2,6 @@ name: Deploy Azure Broker
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - "function_app.py"
-      - "host.json"
-      - "requirements.txt"
-      - "pyproject.toml"
-      - "src/product_campaign_pipeline/demo_broker.py"
-      - "src/product_campaign_pipeline/public_api.py"
-      - ".github/workflows/deploy-azure-broker.yml"
 
 permissions:
   contents: read
