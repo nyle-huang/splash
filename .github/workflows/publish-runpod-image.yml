@@ -1,0 +1,46 @@
+name: Publish Runpod Worker Image
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "Dockerfile.runpod.serverless"
+      - "requirements.runpod.txt"
+      - "pyproject.toml"
+      - "README.md"
+      - "src/**"
+      - "data/creative_ranking/retrieval_index.train_top1024.json"
+      - ".github/workflows/publish-runpod-image.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: runpod-worker-image
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: ghcr.io/nyle-huang/splash-business-prior-serverless
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.runpod.serverless
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
