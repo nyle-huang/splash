@@ -1,0 +1,39 @@
+name: Deploy Azure Broker
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "function_app.py"
+      - "host.json"
+      - "requirements.txt"
+      - "pyproject.toml"
+      - "src/product_campaign_pipeline/demo_broker.py"
+      - "src/product_campaign_pipeline/public_api.py"
+      - ".github/workflows/deploy-azure-broker.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: azure-broker
+  cancel-in-progress: true
+
+env:
+  AZURE_FUNCTIONAPP_NAME: splash-demo-broker-nh
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy broker
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
+          package: .
+          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
+          sku: flexconsumption
+          remote-build: true
