@@ -1,0 +1,50 @@
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/workspace/.hf_home \
+    PCP_OUTPUT_ROOT=/workspace/runtime_outputs \
+    PCP_DEVICE=cuda \
+    PCP_ANALYSIS_DEVICE=cpu \
+    PCP_LOCALIZATION_DEVICE=cuda \
+    PCP_WIDTH=512 \
+    PCP_HEIGHT=512 \
+    PCP_NUM_INFERENCE_STEPS=4 \
+    PCP_GUIDANCE_SCALE=1.0 \
+    PCP_TOP_K=5 \
+    PCP_WARMUP_ON_START=0 \
+    PCP_WARMUP_GENERATION_ON_START=0
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    libglib2.0-0 \
+    python3-pip \
+    software-properties-common \
+ && add-apt-repository ppa:deadsnakes/ppa \
+ && apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 \
+    python3.12-dev \
+    python3.12-venv \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace/product_campaign_pipeline
+
+COPY pyproject.toml README.md ./
+COPY src ./src
+COPY scripts ./scripts
+COPY docs/context ./docs/context
+COPY data ./data
+
+RUN python3.12 -m pip install --upgrade pip setuptools wheel \
+ && python3.12 -m pip install --index-url https://download.pytorch.org/whl/cu124 torch torchvision \
+ && python3.12 -m pip install -e ".[generation,vision,storage,service]"
+
+RUN mkdir -p /workspace/runtime_outputs /workspace/.hf_home
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:8000/healthz || exit 1
+
+CMD ["python3.12", "scripts/run_business_prior_service.py", "--host", "0.0.0.0", "--port", "8000"]

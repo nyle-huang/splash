@@ -1,0 +1,11 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "PCP_DEMO_TOKEN": "replace-with-demo-token",
+    "PCP_RUNPOD_API_KEY": "replace-with-runpod-api-key",
+    "PCP_RUNPOD_ENDPOINT_ID": "replace-with-runpod-endpoint-id",
+    "PCP_ALLOWED_ORIGIN": "https://your-demo-domain.example"
+  }
+}

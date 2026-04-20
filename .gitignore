@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.DS_Store
+
+# Virtual environments
+.venv/
+.venv*/
+.python-version
+
+# Packaging
+.eggs/
+*.egg-info/
+build/
+dist/
+
+# Tooling caches
+.coverage
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Local environment
+.env
+.env.*
+.hf_home/
+local.settings.json
+
+# Generated assets
+artifacts/
+outputs/
+reports/
+cleanup_after_v5.log
+
+# Research data is not part of the public demo repo.
+data/*
+!data/creative_ranking/
+data/creative_ranking/*
+!data/creative_ranking/retrieval_index.train_top1024.json

@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Product Campaign Demo</title>
+    <meta
+      name="description"
+      content="Browser-based demo for the Product Campaign Pipeline business-prior generation flow."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./assets/styles.css" />
+    <script src="./assets/config.js"></script>
+    <script type="module" src="./assets/app.mjs"></script>
+  </head>
+  <body>
+    <header class="hero">
+      <div class="page-shell hero-panel">
+        <p class="eyebrow">Low-volume employer review demo</p>
+        <div class="hero-grid">
+          <div>
+            <h1>Turn one everyday product photo into a campaign-ready image.</h1>
+            <p>
+              This demo keeps the browser static, the token gate server-side, and the GPU work
+              asynchronous. Upload a source image, submit a narrow request contract, and poll for a
+              final result without exposing the model runtime or cloud secrets to the client.
+            </p>
+            <div class="pill-row" aria-label="Architecture summary">
+              <span class="pill"><span class="pill-dot"></span>GitHub Pages frontend</span>
+              <span class="pill"><span class="pill-dot"></span>Azure Functions broker</span>
+              <span class="pill"><span class="pill-dot"></span>Runpod Serverless GPU worker</span>
+            </div>
+          </div>
+          <div class="hero-stats" aria-label="Verified benchmark proof">
+            <div class="hero-stat">
+              <span>Accepted benchmark ids</span>
+              <strong>80</strong>
+            </div>
+            <div class="hero-stat">
+              <span>Generated benchmark rows</span>
+              <strong>160</strong>
+            </div>
+            <div class="hero-stat">
+              <span>Median generation time</span>
+              <strong>25.2s</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="page-shell">
+      <section class="main-grid" aria-label="Demo interaction">
+        <section class="card form-card">
+          <div class="card-header">
+            <h2>Start a request</h2>
+            <p>
+              The browser prepares the upload before sending it to the broker so the request stays
+              under the serverless payload budget.
+            </p>
+          </div>
+          <form id="demo-form" novalidate>
+            <div class="field-grid">
+              <div class="field">
+                <label for="demo-token">Demo token</label>
+                <input
+                  id="demo-token"
+                  name="demoToken"
+                  type="password"
+                  autocomplete="off"
+                  placeholder="Paste the token you intend to share privately"
+                  required
+                />
+                <small>The token is validated by the Azure broker, not by this static site.</small>
+              </div>
+
+              <div class="field-grid two-up">
+                <div class="field">
+                  <label for="product-title">Product title</label>
+                  <input
+                    id="product-title"
+                    name="productTitle"
+                    type="text"
+                    maxlength="160"
+                    placeholder="Floral wallet"
+                    required
+                  />
+                </div>
+                <div class="field">
+                  <label for="request-id">Optional request id</label>
+                  <input
+                    id="request-id"
+                    name="requestId"
+                    type="text"
+                    maxlength="80"
+                    placeholder="Leave blank to auto-generate"
+                  />
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="hint-phrases">Hint phrases</label>
+                <textarea
+                  id="hint-phrases"
+                  name="hintPhrases"
+                  rows="3"
+                  placeholder="wallet, floral, leather"
+                ></textarea>
+                <small>Comma, newline, or pipe separated. The public contract keeps at most 8 hints.</small>
+              </div>
+
+              <div class="field">
+                <label for="source-image">Source image</label>
+                <div class="dropzone">
+                  <input id="source-image" name="sourceImage" type="file" accept="image/png,image/jpeg,image/webp" required />
+                  <p class="microcopy">
+                    Supported input types: JPEG, PNG, and WebP. The browser converts the prepared
+                    upload to JPEG after resizing and flattening transparent pixels onto white.
+                  </p>
+
+                  <div id="upload-preview-empty" class="microcopy">
+                    No file prepared yet.
+                  </div>
+
+                  <div id="upload-preview-shell" class="upload-preview is-hidden">
+                    <div class="preview-frame">
+                      <img id="upload-preview-image" alt="Prepared upload preview" />
+                    </div>
+                    <div class="preview-metadata" aria-label="Prepared upload metadata">
+                      <div class="metadata-row">
+                        <span>Original size</span>
+                        <strong id="original-bytes">-</strong>
+                      </div>
+                      <div class="metadata-row">
+                        <span>Prepared size</span>
+                        <strong id="prepared-bytes">-</strong>
+                      </div>
+                      <div class="metadata-row">
+                        <span>Prepared dimensions</span>
+                        <strong id="prepared-dimensions">-</strong>
+                      </div>
+                      <div class="metadata-row">
+                        <span>Prepared MIME type</span>
+                        <strong id="prepared-mime">-</strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="button-row">
+              <button id="submit-button" class="button primary" type="submit">Submit request</button>
+              <button id="reset-button" class="button secondary" type="button">Reset form</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card status-card">
+          <div class="status-stack">
+            <div class="status-header">
+              <div class="card-header">
+                <h3>Request status</h3>
+                <p>The site polls the broker until the queued Runpod job reaches a terminal state.</p>
+              </div>
+              <span id="status-pill" class="status-pill tone-queued">Queued</span>
+            </div>
+
+            <div class="status-summary">
+              <h3 id="status-headline">Waiting for input</h3>
+              <p id="status-summary">Submit a prepared upload to create a GPU job.</p>
+            </div>
+
+            <div id="status-trace" class="status-trace" aria-live="polite"></div>
+
+            <div id="result-frame" class="result-frame is-hidden">
+              <img id="result-image" alt="Generated campaign result" />
+            </div>
+            <div id="result-meta" class="microcopy is-hidden"></div>
+
+            <div id="invalid-callout" class="callout is-hidden">
+              <h4>Invalid source details</h4>
+              <p>
+                <strong>Reason:</strong>
+                <span id="invalid-reason">invalid_source_photo</span>
+              </p>
+              <ul id="invalid-issues"></ul>
+            </div>
+
+            <div id="error-callout" class="callout is-hidden">
+              <h4>Request error</h4>
+              <p id="error-text"></p>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section class="section" aria-labelledby="proof-heading">
+        <div class="section-header">
+          <h2 id="proof-heading">Benchmark proof</h2>
+          <p>
+            These numbers are taken directly from the accepted benchmark artifacts in this repo:
+            `outputs/final_benchmark_candidate_v5/reports/benchmark_summary.json` and
+            `generation_report.json`.
+          </p>
+        </div>
+        <div class="proof-grid">
+          <article class="card proof-card">
+            <strong>80 ids</strong>
+            <span>Accepted product set</span>
+            <p>The repaired benchmark bundle keeps 80 accepted products in the regression surface.</p>
+          </article>
+          <article class="card proof-card">
+            <strong>160 rows</strong>
+            <span>Generated benchmark outputs</span>
+            <p>Each accepted product contributes two generated rows in the benchmark board.</p>
+          </article>
+          <article class="card proof-card">
+            <strong>23 ids</strong>
+            <span>Excluded or held out</span>
+            <p>Invalid or held-out sources were removed from the acceptance set instead of being masked in the UI.</p>
+          </article>
+          <article class="card proof-card">
+            <strong>15.7s</strong>
+            <span>Fastest recorded generation</span>
+            <p>The accepted benchmark includes fast-path cases even before serverless cold-start overhead.</p>
+          </article>
+          <article class="card proof-card">
+            <strong>30.7s</strong>
+            <span>Mean generation time</span>
+            <p>This is the average per-row generation time recorded in the acceptance report.</p>
+          </article>
+          <article class="card proof-card">
+            <strong>59.7s</strong>
+            <span>Slowest recorded generation</span>
+            <p>The slowest benchmark row still completed under one minute before transport and queue delay.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="architecture-heading">
+        <div class="section-header">
+          <h2 id="architecture-heading">How the public stack works</h2>
+          <p>
+            The deployment is intentionally split so the static site stays cheap, the broker keeps
+            secrets and access control off the client, and the GPU worker only handles the narrow
+            browser-facing contract.
+          </p>
+        </div>
+        <div class="architecture-grid">
+          <article class="card architecture-card">
+            <h3>1. Static site</h3>
+            <p>
+              GitHub Pages serves this frontend. The browser validates the selected file, resizes it
+              client-side, and strips the data URL prefix before submitting the payload.
+            </p>
+          </article>
+          <article class="card architecture-card">
+            <h3>2. Azure broker</h3>
+            <p>
+              Azure Functions validates the bearer token, enforces size limits, forwards the job to
+              Runpod, and exposes only two public endpoints: `POST /api/jobs` and `GET /api/jobs/{id}`.
+            </p>
+          </article>
+          <article class="card architecture-card">
+            <h3>3. Runpod worker</h3>
+            <p>
+              The GPU worker stages the uploaded image, runs the existing `business_prior` inference
+              runtime, and returns either a compact final image payload or structured invalid-source details.
+            </p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="page-shell footer">
+      Public demo stack for the Product Campaign Pipeline. Update `website/assets/config.js` with the
+      Azure Function base URL before publishing the site.
+    </footer>
+  </body>
+</html>

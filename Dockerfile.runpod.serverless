@@ -1,0 +1,44 @@
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/workspace/.hf_home \
+    PCP_OUTPUT_ROOT=/workspace/runtime_outputs \
+    PCP_RETRIEVAL_INDEX_PATH=/workspace/product_campaign_pipeline/data/creative_ranking/retrieval_index.train_top1024.json \
+    PCP_DEVICE=cuda \
+    PCP_ANALYSIS_DEVICE=cpu \
+    PCP_LOCALIZATION_DEVICE=cuda \
+    PCP_WIDTH=512 \
+    PCP_HEIGHT=512 \
+    PCP_NUM_INFERENCE_STEPS=4 \
+    PCP_GUIDANCE_SCALE=1.0 \
+    PCP_TOP_K=5 \
+    PCP_WARMUP_ON_START=0 \
+    PCP_WARMUP_GENERATION_ON_START=0
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libglib2.0-0 \
+    python3-pip \
+    software-properties-common \
+ && add-apt-repository ppa:deadsnakes/ppa \
+ && apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 \
+    python3.12-dev \
+    python3.12-venv \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace/product_campaign_pipeline
+
+COPY pyproject.toml README.md requirements.runpod.txt ./
+COPY src ./src
+COPY data/creative_ranking/retrieval_index.train_top1024.json ./data/creative_ranking/retrieval_index.train_top1024.json
+
+RUN python3.12 -m pip install --upgrade pip setuptools wheel \
+ && python3.12 -m pip install --index-url https://download.pytorch.org/whl/cu124 torch torchvision \
+ && python3.12 -m pip install -e ".[generation,vision,storage]" \
+ && python3.12 -m pip install -r requirements.runpod.txt
+
+RUN mkdir -p /workspace/runtime_outputs /workspace/.hf_home
+
+CMD ["python3.12", "-m", "product_campaign_pipeline.runpod_worker"]

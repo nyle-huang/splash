@@ -1,0 +1,3 @@
+# Azure Functions deployment dependencies for the public broker.
+azure-functions>=1.21,<2.0
+-e .[service]

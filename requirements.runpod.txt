@@ -1,0 +1,2 @@
+# Runpod Serverless worker dependency.
+runpod>=1.7,<2.0
