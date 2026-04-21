@@ -95,6 +95,9 @@ def create_app(settings: BusinessPriorServiceSettings | None = None) -> FastAPI:
                 top_k=top_k or runtime_settings.top_k,
                 seed=seed,
                 skip_analysis=skip_analysis,
+                cpu_offload=runtime_settings.cpu_offload,
+                sequential_cpu_offload=runtime_settings.sequential_cpu_offload,
+                attention_slicing=runtime_settings.attention_slicing,
             )
             return run_business_prior_inference(
                 request_payload,

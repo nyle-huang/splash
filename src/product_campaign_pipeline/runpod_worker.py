@@ -125,6 +125,9 @@ def handle_public_generation_job(
             analysis_device=runtime_cache.settings.analysis_device,
             localization_device=runtime_cache.settings.localization_device,
             top_k=runtime_cache.settings.top_k,
+            cpu_offload=runtime_cache.settings.cpu_offload,
+            sequential_cpu_offload=runtime_cache.settings.sequential_cpu_offload,
+            attention_slicing=runtime_cache.settings.attention_slicing,
         )
         result = run_business_prior_inference(
             runtime_request,

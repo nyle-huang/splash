@@ -30,6 +30,9 @@ class BusinessPriorRuntimeSettings(BaseModel):
     num_inference_steps: int = 4
     guidance_scale: float = 1.0
     top_k: int = 5
+    cpu_offload: bool = True
+    sequential_cpu_offload: bool = False
+    attention_slicing: bool = True
     warmup_on_start: bool = False
     warmup_generation_on_start: bool = False
 
@@ -66,6 +69,9 @@ class BusinessPriorRuntimeSettings(BaseModel):
                 )
             ),
             top_k=int(os.getenv("PCP_TOP_K", str(cls.model_fields["top_k"].default))),
+            cpu_offload=_env_flag("PCP_CPU_OFFLOAD", default=True),
+            sequential_cpu_offload=_env_flag("PCP_SEQUENTIAL_CPU_OFFLOAD", default=False),
+            attention_slicing=_env_flag("PCP_ATTENTION_SLICING", default=True),
             warmup_on_start=_env_flag("PCP_WARMUP_ON_START", default=False),
             warmup_generation_on_start=_env_flag("PCP_WARMUP_GENERATION_ON_START", default=False),
         )
@@ -126,9 +132,9 @@ class RuntimeCache:
                 model_id=self.settings.model_id,
                 device=self.settings.device,
                 dtype="bfloat16",
-                cpu_offload=True,
-                sequential_cpu_offload=True,
-                attention_slicing=True,
+                cpu_offload=self.settings.cpu_offload,
+                sequential_cpu_offload=self.settings.sequential_cpu_offload,
+                attention_slicing=self.settings.attention_slicing,
             )
         return self.client
 

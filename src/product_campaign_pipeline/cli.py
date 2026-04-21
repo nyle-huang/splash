@@ -152,6 +152,11 @@ def _build_parser() -> argparse.ArgumentParser:
     generate_business_prior_photo.add_argument("--localization-device", default="cuda", choices=("cuda", "cpu", "auto"))
     generate_business_prior_photo.add_argument("--candidate-mode", action="append", dest="candidate_modes", default=[])
     generate_business_prior_photo.add_argument("--skip-analysis", action="store_true")
+    generate_business_prior_photo.add_argument("--cpu-offload", dest="cpu_offload", action="store_true", default=True)
+    generate_business_prior_photo.add_argument("--no-cpu-offload", dest="cpu_offload", action="store_false")
+    generate_business_prior_photo.add_argument("--sequential-cpu-offload", action="store_true")
+    generate_business_prior_photo.add_argument("--attention-slicing", dest="attention_slicing", action="store_true", default=True)
+    generate_business_prior_photo.add_argument("--no-attention-slicing", dest="attention_slicing", action="store_false")
     generate_business_prior_photo.add_argument("--top-k", type=int, default=5)
     generate_business_prior_photo.add_argument("--seed", type=int)
     generate_business_prior_photo.set_defaults(handler=_handle_generate_business_prior_photo)
@@ -302,6 +307,9 @@ def _handle_generate_business_prior_photo(args: argparse.Namespace) -> dict[str,
         skip_analysis=bool(args.skip_analysis),
         top_k=args.top_k,
         seed=args.seed,
+        cpu_offload=args.cpu_offload,
+        sequential_cpu_offload=args.sequential_cpu_offload,
+        attention_slicing=args.attention_slicing,
     )
     result = run_business_prior_inference(request)
     return result.model_dump()

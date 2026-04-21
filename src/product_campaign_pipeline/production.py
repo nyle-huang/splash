@@ -70,6 +70,9 @@ class BusinessPriorInferenceRequest(BaseModel):
     skip_analysis: bool = False
     top_k: int = Field(default=5, ge=1, le=20)
     seed: int | None = None
+    cpu_offload: bool = True
+    sequential_cpu_offload: bool = False
+    attention_slicing: bool = True
 
 
 class BusinessPriorCandidateScore(BaseModel):
@@ -256,9 +259,9 @@ def run_business_prior_inference(
         model_id=req.model_id,
         device=req.device,
         dtype="bfloat16",
-        cpu_offload=True,
-        sequential_cpu_offload=True,
-        attention_slicing=True,
+        cpu_offload=req.cpu_offload,
+        sequential_cpu_offload=req.sequential_cpu_offload,
+        attention_slicing=req.attention_slicing,
     )
     generated_focus_localizer = generated_localizer
     if not req.skip_analysis and generated_focus_localizer is None:

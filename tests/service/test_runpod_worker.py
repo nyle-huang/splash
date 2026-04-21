@@ -90,6 +90,21 @@ def test_handle_public_generation_job_returns_public_success_result(tmp_path: Pa
     assert runtime_request.product_title == "Floral Wallet"
     assert runtime_request.request_id == "demo-request"
     assert Path(runtime_request.image_path).exists()
+    assert runtime_request.cpu_offload is True
+    assert runtime_request.sequential_cpu_offload is False
+    assert runtime_request.attention_slicing is True
+
+
+def test_runtime_settings_parse_flux_offload_env(monkeypatch) -> None:
+    monkeypatch.setenv("PCP_CPU_OFFLOAD", "0")
+    monkeypatch.setenv("PCP_SEQUENTIAL_CPU_OFFLOAD", "1")
+    monkeypatch.setenv("PCP_ATTENTION_SLICING", "false")
+
+    settings = BusinessPriorRuntimeSettings.from_env()
+
+    assert settings.cpu_offload is False
+    assert settings.sequential_cpu_offload is True
+    assert settings.attention_slicing is False
 
 
 def test_handle_public_generation_job_ignores_internal_debug_flag(tmp_path: Path) -> None:
