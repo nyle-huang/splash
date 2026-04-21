@@ -104,11 +104,13 @@ docker build -f Dockerfile.runpod.serverless -t pcp-business-prior-serverless:la
 Required worker environment variables:
 
 - `HF_TOKEN`
+- `PCP_WORKER_LOG_PATH`
 - `PCP_OUTPUT_ROOT`
 - `PCP_RETRIEVAL_INDEX_PATH`
 - `PCP_DEVICE`
 - `PCP_ANALYSIS_DEVICE`
 - `PCP_LOCALIZATION_DEVICE`
+- `PCP_RUNPOD_WORKER_MODE`
 
 For the cost-optimized public demo, Runpod should attach a `100GB` network
 volume at `/runpod-volume`. The serverless image defaults `HF_HOME` to
@@ -116,6 +118,12 @@ volume at `/runpod-volume`. The serverless image defaults `HF_HOME` to
 `/runpod-volume/runtime_outputs` so model downloads and runtime artifacts survive
 worker cold starts. The worker also writes persistent diagnostics to
 `/runpod-volume/logs/runpod_worker.log`.
+
+The image starts through `product_campaign_pipeline.runpod_entrypoint`.
+`PCP_RUNPOD_WORKER_MODE=generation` runs the production worker.
+`PCP_RUNPOD_WORKER_MODE=ping` runs a minimal dispatch/logging diagnostic worker
+that imports only the Runpod SDK and returns immediately. Use `ping` mode before
+warmup when Runpod queue state and exported logs disagree.
 
 Direct Runpod API calls can verify worker dispatch without loading models with:
 
@@ -143,7 +151,7 @@ This internal warmup payload is not part of the browser-facing broker contract.
 Recommended startup command:
 
 ```bash
-python3.12 -m product_campaign_pipeline.runpod_worker
+python3.12 -m product_campaign_pipeline.runpod_entrypoint
 ```
 
 ## GitHub Pages Site

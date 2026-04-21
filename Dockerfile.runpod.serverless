@@ -42,4 +42,4 @@ RUN python3 -m venv /opt/venv \
 
 RUN mkdir -p /runpod-volume/runtime_outputs /runpod-volume/hf_home /runpod-volume/logs
 
-CMD ["python", "-m", "product_campaign_pipeline.runpod_worker"]
+CMD ["python", "-m", "product_campaign_pipeline.runpod_entrypoint"]
