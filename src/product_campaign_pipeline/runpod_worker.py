@@ -30,6 +30,7 @@ from product_campaign_pipeline.public_api import (
 LOGGER = logging.getLogger(__name__)
 _DEFAULT_RUNTIME_CACHE: Any | None = None
 DEFAULT_WORKER_LOG_PATH = "/runpod-volume/logs/runpod_worker.log"
+ENABLE_WORKER_FILE_LOG_ENV = "PCP_ENABLE_WORKER_FILE_LOG"
 
 
 def handle_public_generation_job(
@@ -335,13 +336,21 @@ def _warmup_default_runtime_on_start_if_configured() -> None:
 def _configure_runpod_logging() -> None:
     print("PCP_RUNPOD_LOGGING_CONFIGURE_START", flush=True)
     root_logger = logging.getLogger()
-    if root_logger.handlers:
-        root_logger.setLevel(logging.INFO)
-    else:
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s %(levelname)s %(name)s %(message)s",
-        )
+    root_logger.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    if not any(
+        isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler)
+        for handler in root_logger.handlers
+    ):
+        stream_handler = logging.StreamHandler(sys.stdout)
+        stream_handler.setLevel(logging.INFO)
+        stream_handler.setFormatter(formatter)
+        root_logger.addHandler(stream_handler)
+
+    if not _worker_file_logging_enabled():
+        LOGGER.info("Runpod worker startup file logging disabled.")
+        print("PCP_RUNPOD_LOGGING_READY stream=stdout file=disabled", flush=True)
+        return
 
     log_path = Path(os.getenv("PCP_WORKER_LOG_PATH", DEFAULT_WORKER_LOG_PATH))
     try:
@@ -362,6 +371,11 @@ def _configure_runpod_logging() -> None:
     except OSError:
         LOGGER.exception("Failed to configure Runpod worker persistent log at %s", log_path)
         print(f"PCP_RUNPOD_LOGGING_FAILED path={log_path}", flush=True)
+
+
+def _worker_file_logging_enabled() -> bool:
+    raw = os.getenv(ENABLE_WORKER_FILE_LOG_ENV)
+    return raw is not None and raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _job_input_keys(job: dict[str, Any]) -> list[str]:

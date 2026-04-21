@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from product_campaign_pipeline.runpod_ping_worker import handle_ping_job
+from pathlib import Path
+
+from product_campaign_pipeline.runpod_ping_worker import _configure_ping_logging, handle_ping_job
 
 
 def test_handle_ping_job_returns_dispatch_diagnostics(
@@ -29,3 +31,17 @@ def test_handle_ping_job_returns_dispatch_diagnostics(
     assert payload["paths"]["worker_log_path"] == "/tmp/pcp-runpod-test/runpod_worker.log"
     assert payload["paths"]["hf_home"] == "/tmp/pcp-runpod-test/hf_home"
     assert payload["paths"]["output_root"] == "/tmp/pcp-runpod-test/runtime_outputs"
+
+
+def test_ping_startup_logging_does_not_touch_worker_log_path_by_default(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "missing-parent" / "worker.log"
+    monkeypatch.setenv("PCP_WORKER_LOG_PATH", str(log_path))
+    monkeypatch.delenv("PCP_ENABLE_WORKER_FILE_LOG", raising=False)
+
+    _configure_ping_logging()
+
+    assert not log_path.parent.exists()
+    assert not log_path.exists()

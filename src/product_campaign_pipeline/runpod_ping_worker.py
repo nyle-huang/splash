@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_WORKER_LOG_PATH = "/runpod-volume/logs/runpod_worker.log"
+ENABLE_WORKER_FILE_LOG_ENV = "PCP_ENABLE_WORKER_FILE_LOG"
 
 LOGGER = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ def handle_ping_job(job: dict[str, Any]) -> dict[str, Any]:
 
 
 def _configure_ping_logging() -> None:
+    print("PCP_RUNPOD_PING_LOGGING_CONFIGURE_START", flush=True)
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -61,6 +63,11 @@ def _configure_ping_logging() -> None:
         stream_handler.setLevel(logging.INFO)
         stream_handler.setFormatter(formatter)
         root_logger.addHandler(stream_handler)
+
+    if not _worker_file_logging_enabled():
+        LOGGER.info("Minimal Runpod ping startup file logging disabled.")
+        print("PCP_RUNPOD_PING_LOGGING_READY stream=stdout file=disabled", flush=True)
+        return
 
     log_path = Path(os.getenv("PCP_WORKER_LOG_PATH", DEFAULT_WORKER_LOG_PATH))
     try:
@@ -78,6 +85,11 @@ def _configure_ping_logging() -> None:
         LOGGER.exception("Failed to configure minimal Runpod ping log at %s", log_path)
 
     print(f"PCP_RUNPOD_PING_LOGGING_READY path={log_path}", flush=True)
+
+
+def _worker_file_logging_enabled() -> bool:
+    raw = os.getenv(ENABLE_WORKER_FILE_LOG_ENV)
+    return raw is not None and raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _diagnostic_paths() -> dict[str, Any]:

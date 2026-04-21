@@ -7,6 +7,7 @@ from PIL import Image
 
 from product_campaign_pipeline.production import BusinessPriorInferenceResult
 from product_campaign_pipeline.runpod_worker import (
+    _configure_runpod_logging,
     _warmup_default_runtime_on_start_if_configured,
     handle_public_generation_job,
 )
@@ -292,3 +293,17 @@ def test_startup_warmup_disabled_does_not_initialize_runtime_cache(monkeypatch) 
         _warmup_default_runtime_on_start_if_configured()
 
     cache_mock.assert_not_called()
+
+
+def test_startup_logging_does_not_touch_worker_log_path_by_default(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "missing-parent" / "worker.log"
+    monkeypatch.setenv("PCP_WORKER_LOG_PATH", str(log_path))
+    monkeypatch.delenv("PCP_ENABLE_WORKER_FILE_LOG", raising=False)
+
+    _configure_runpod_logging()
+
+    assert not log_path.parent.exists()
+    assert not log_path.exists()
