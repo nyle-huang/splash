@@ -6,7 +6,10 @@ from unittest.mock import patch
 from PIL import Image
 
 from product_campaign_pipeline.production import BusinessPriorInferenceResult
-from product_campaign_pipeline.runpod_worker import handle_public_generation_job
+from product_campaign_pipeline.runpod_worker import (
+    _warmup_default_runtime_on_start_if_configured,
+    handle_public_generation_job,
+)
 from product_campaign_pipeline.runtime import (
     BusinessPriorRuntimeSettings,
     RuntimeCache,
@@ -279,3 +282,13 @@ def test_handle_public_generation_job_runs_internal_ping_without_runtime_cache()
     assert payload["request_id"] == "ping-job"
     assert payload["versions"]["python"]
     assert "accelerate" in payload["versions"]
+
+
+def test_startup_warmup_disabled_does_not_initialize_runtime_cache(monkeypatch) -> None:
+    monkeypatch.setenv("PCP_WARMUP_ON_START", "0")
+    monkeypatch.setenv("PCP_WARMUP_GENERATION_ON_START", "0")
+
+    with patch("product_campaign_pipeline.runpod_worker._get_default_runtime_cache") as cache_mock:
+        _warmup_default_runtime_on_start_if_configured()
+
+    cache_mock.assert_not_called()

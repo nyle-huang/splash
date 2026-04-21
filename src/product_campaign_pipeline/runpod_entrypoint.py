@@ -28,20 +28,25 @@ def resolve_worker_mode(raw_mode: str | None) -> str:
 
 
 def _start_generation_worker() -> None:
+    print("PCP Runpod entrypoint importing generation worker.", flush=True)
     from product_campaign_pipeline.runpod_worker import start_runpod_worker
 
+    print("PCP Runpod entrypoint starting generation worker.", flush=True)
     start_runpod_worker()
 
 
 def _start_ping_worker() -> None:
+    print("PCP Runpod entrypoint importing ping worker.", flush=True)
     from product_campaign_pipeline.runpod_ping_worker import start_runpod_ping_worker
 
+    print("PCP Runpod entrypoint starting ping worker.", flush=True)
     start_runpod_ping_worker()
 
 
 def main() -> None:
     """Start the configured Runpod worker mode."""
 
+    print("PCP Runpod entrypoint starting.", flush=True)
     mode = resolve_worker_mode(os.getenv("PCP_RUNPOD_WORKER_MODE"))
     print(f"PCP Runpod entrypoint selected worker mode: {mode}", flush=True)
     if mode == PING_MODE:

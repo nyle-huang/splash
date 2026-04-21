@@ -212,12 +212,12 @@ def handle_public_generation_job(
     return payload
 
 
-def _get_default_runtime_cache() -> Any:
+def _get_default_runtime_cache(*, settings: Any | None = None) -> Any:
     global _DEFAULT_RUNTIME_CACHE
     if _DEFAULT_RUNTIME_CACHE is None:
         from product_campaign_pipeline.runtime import BusinessPriorRuntimeSettings, RuntimeCache
 
-        _DEFAULT_RUNTIME_CACHE = RuntimeCache(BusinessPriorRuntimeSettings.from_env())
+        _DEFAULT_RUNTIME_CACHE = RuntimeCache(settings or BusinessPriorRuntimeSettings.from_env())
     return _DEFAULT_RUNTIME_CACHE
 
 
@@ -312,11 +312,15 @@ def _failure_summary(base_summary: str, exc: Exception, *, debug_errors: bool) -
 
 
 def _warmup_default_runtime_on_start_if_configured() -> None:
-    runtime_cache = _get_default_runtime_cache()
-    settings = runtime_cache.settings
+    from product_campaign_pipeline.runtime import BusinessPriorRuntimeSettings
+
+    settings = BusinessPriorRuntimeSettings.from_env()
     if not (settings.warmup_on_start or settings.warmup_generation_on_start):
+        print("PCP_RUNPOD_STARTUP_WARMUP_DISABLED", flush=True)
+        LOGGER.info("Runpod worker startup warmup disabled; runtime cache not initialized.")
         return
 
+    runtime_cache = _get_default_runtime_cache(settings=settings)
     LOGGER.info(
         "Starting Runpod worker runtime warmup. include_generation=%s",
         settings.warmup_generation_on_start,
@@ -329,6 +333,7 @@ def _warmup_default_runtime_on_start_if_configured() -> None:
 
 
 def _configure_runpod_logging() -> None:
+    print("PCP_RUNPOD_LOGGING_CONFIGURE_START", flush=True)
     root_logger = logging.getLogger()
     if root_logger.handlers:
         root_logger.setLevel(logging.INFO)
@@ -353,8 +358,10 @@ def _configure_runpod_logging() -> None:
             )
             root_logger.addHandler(file_handler)
         LOGGER.info("Runpod worker persistent log configured at %s", log_path)
+        print(f"PCP_RUNPOD_LOGGING_READY path={log_path}", flush=True)
     except OSError:
         LOGGER.exception("Failed to configure Runpod worker persistent log at %s", log_path)
+        print(f"PCP_RUNPOD_LOGGING_FAILED path={log_path}", flush=True)
 
 
 def _job_input_keys(job: dict[str, Any]) -> list[str]:
@@ -486,7 +493,9 @@ def _fallback_request_id(job: dict[str, Any]) -> str:
 def start_runpod_worker() -> None:
     """Start the worker in a real Runpod Serverless runtime."""
 
+    print("PCP_RUNPOD_GENERATION_WORKER_STARTING", flush=True)
     _configure_runpod_logging()
+    print("PCP_RUNPOD_GENERATION_WORKER_LOGGING_READY", flush=True)
     LOGGER.info(
         "Starting Runpod worker. python=%s accelerate=%s diffusers=%s runpod=%s torch=%s",
         sys.version.split()[0],
@@ -497,14 +506,18 @@ def start_runpod_worker() -> None:
     )
 
     try:
+        print("PCP_RUNPOD_IMPORT_RUNPOD_START", flush=True)
         import runpod
+        print("PCP_RUNPOD_IMPORT_RUNPOD_READY", flush=True)
     except ImportError as exc:  # pragma: no cover - deployment-only code path
         raise RuntimeError(
             "Runpod serverless dependencies are missing. "
             "Install the worker image requirements first."
         ) from exc
 
+    print("PCP_RUNPOD_STARTUP_WARMUP_CHECK_START", flush=True)
     _warmup_default_runtime_on_start_if_configured()
+    print("PCP_RUNPOD_SERVERLESS_START_CALL", flush=True)
     runpod.serverless.start({"handler": handle_public_generation_job})
 
 

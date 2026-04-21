@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
-from product_campaign_pipeline.flux import DEFAULT_MODEL_ID, Flux2KleinClient
-from product_campaign_pipeline.localization import build_model_backed_localization_pipeline
-from product_campaign_pipeline.review_batch import VisionBackbone, load_retrieval_index
+if TYPE_CHECKING:
+    from product_campaign_pipeline.flux import Flux2KleinClient
+    from product_campaign_pipeline.review_batch import VisionBackbone
+
+DEFAULT_RUNTIME_MODEL_ID = "black-forest-labs/FLUX.2-klein-9B"
 
 
 class BusinessPriorRuntimeSettings(BaseModel):
@@ -21,7 +23,7 @@ class BusinessPriorRuntimeSettings(BaseModel):
     retrieval_index_path: str = (
         "/workspace/product_campaign_pipeline/data/creative_ranking/retrieval_index.train_top1024.json"
     )
-    model_id: str = DEFAULT_MODEL_ID
+    model_id: str = DEFAULT_RUNTIME_MODEL_ID
     device: str = "cuda"
     analysis_device: str = "cpu"
     localization_device: str = "cuda"
@@ -105,11 +107,17 @@ class RuntimeCache:
 
     def ensure_retrieval_index(self) -> list[Any]:
         if self.retrieval_index is None:
+            from product_campaign_pipeline.review_batch import load_retrieval_index
+
             self.retrieval_index = load_retrieval_index(self.settings.retrieval_index_path)
         return self.retrieval_index
 
     def ensure_localization_pipeline(self) -> Any:
         if self.localization_pipeline is None:
+            from product_campaign_pipeline.localization import (
+                build_model_backed_localization_pipeline,
+            )
+
             self.localization_pipeline = build_model_backed_localization_pipeline(
                 device=self.settings.localization_device
             )
@@ -117,17 +125,25 @@ class RuntimeCache:
 
     def ensure_generated_localizer(self) -> Any:
         if self.generated_localizer is None:
+            from product_campaign_pipeline.localization import (
+                build_model_backed_localization_pipeline,
+            )
+
             device = "cpu" if self.settings.device != "cpu" else self.settings.device
             self.generated_localizer = build_model_backed_localization_pipeline(device=device)
         return self.generated_localizer
 
     def ensure_backbone(self) -> VisionBackbone:
         if self.backbone is None:
+            from product_campaign_pipeline.review_batch import VisionBackbone
+
             self.backbone = VisionBackbone(device=self.settings.analysis_device)
         return self.backbone
 
     def ensure_client(self) -> Flux2KleinClient:
         if self.client is None:
+            from product_campaign_pipeline.flux import Flux2KleinClient
+
             self.client = Flux2KleinClient(
                 model_id=self.settings.model_id,
                 device=self.settings.device,
