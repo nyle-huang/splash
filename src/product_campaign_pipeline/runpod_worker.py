@@ -5,7 +5,11 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import os
+import sys
+import time
 import uuid
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +29,7 @@ from product_campaign_pipeline.public_api import (
 
 LOGGER = logging.getLogger(__name__)
 _DEFAULT_RUNTIME_CACHE: Any | None = None
+DEFAULT_WORKER_LOG_PATH = "/runpod-volume/logs/runpod_worker.log"
 
 
 def handle_public_generation_job(
@@ -34,13 +39,29 @@ def handle_public_generation_job(
 ) -> dict[str, Any]:
     """Handle a single public browser-originated generation job."""
 
+    started_at = time.perf_counter()
     fallback_request_id = _fallback_request_id(job)
+    LOGGER.info(
+        "Runpod job received. request_id=%s input_keys=%s",
+        fallback_request_id,
+        _job_input_keys(job),
+    )
+    if _is_internal_ping_job(job):
+        return _handle_internal_ping_job(request_id=fallback_request_id)
+
     if _is_internal_warmup_job(job):
-        return _handle_internal_warmup_job(
+        result = _handle_internal_warmup_job(
             job,
             cache=cache,
             request_id=fallback_request_id,
         )
+        LOGGER.info(
+            "Runpod warmup job completed. request_id=%s status=%s elapsed_seconds=%.3f",
+            fallback_request_id,
+            result.get("status"),
+            time.perf_counter() - started_at,
+        )
+        return result
 
     try:
         runtime_cache = cache or _get_default_runtime_cache()
@@ -118,7 +139,14 @@ def handle_public_generation_job(
                 summary="The generation job failed before a final image could be produced.",
                 error_code="inference_failed",
             )
-    return worker_result.model_dump(mode="json")
+    payload = worker_result.model_dump(mode="json")
+    LOGGER.info(
+        "Runpod generation job completed. request_id=%s status=%s elapsed_seconds=%.3f",
+        fallback_request_id,
+        payload.get("status"),
+        time.perf_counter() - started_at,
+    )
+    return payload
 
 
 def _get_default_runtime_cache() -> Any:
@@ -153,6 +181,31 @@ def _handle_internal_warmup_job(
     }
 
 
+def _handle_internal_ping_job(*, request_id: str) -> dict[str, Any]:
+    """Return immediately so Runpod dispatch can be tested without loading models."""
+
+    versions = {
+        "python": sys.version.split()[0],
+        "accelerate": _package_version("accelerate"),
+        "diffusers": _package_version("diffusers"),
+        "runpod": _package_version("runpod"),
+        "torch": _package_version("torch"),
+        "transformers": _package_version("transformers"),
+    }
+    LOGGER.info("Runpod ping job completed. request_id=%s versions=%s", request_id, versions)
+    return {
+        "status": "succeeded",
+        "request_id": request_id,
+        "summary": "Runpod worker ping completed.",
+        "versions": versions,
+    }
+
+
+def _is_internal_ping_job(job: dict[str, Any]) -> bool:
+    job_input = job.get("input")
+    return isinstance(job_input, dict) and bool(job_input.get("_internal_ping"))
+
+
 def _is_internal_warmup_job(job: dict[str, Any]) -> bool:
     job_input = job.get("input")
     return isinstance(job_input, dict) and bool(
@@ -185,6 +238,49 @@ def _warmup_default_runtime_on_start_if_configured() -> None:
         LOGGER.info("Runpod worker runtime warmup completed.")
     else:
         LOGGER.warning("Runpod worker runtime warmup degraded: %s", status.warmup_error)
+
+
+def _configure_runpod_logging() -> None:
+    root_logger = logging.getLogger()
+    if root_logger.handlers:
+        root_logger.setLevel(logging.INFO)
+    else:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        )
+
+    log_path = Path(os.getenv("PCP_WORKER_LOG_PATH", DEFAULT_WORKER_LOG_PATH))
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        if not any(
+            isinstance(handler, logging.FileHandler)
+            and Path(handler.baseFilename) == log_path
+            for handler in root_logger.handlers
+        ):
+            file_handler = logging.FileHandler(log_path)
+            file_handler.setLevel(logging.INFO)
+            file_handler.setFormatter(
+                logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+            )
+            root_logger.addHandler(file_handler)
+        LOGGER.info("Runpod worker persistent log configured at %s", log_path)
+    except OSError:
+        LOGGER.exception("Failed to configure Runpod worker persistent log at %s", log_path)
+
+
+def _job_input_keys(job: dict[str, Any]) -> list[str]:
+    job_input = job.get("input")
+    if not isinstance(job_input, dict):
+        return []
+    return sorted(str(key) for key in job_input)
+
+
+def _package_version(package_name: str) -> str | None:
+    try:
+        return metadata.version(package_name)
+    except metadata.PackageNotFoundError:
+        return None
 
 
 def run_business_prior_inference(request: Any, **kwargs: Any) -> Any:
@@ -290,6 +386,16 @@ def _fallback_request_id(job: dict[str, Any]) -> str:
 
 def start_runpod_worker() -> None:
     """Start the worker in a real Runpod Serverless runtime."""
+
+    _configure_runpod_logging()
+    LOGGER.info(
+        "Starting Runpod worker. python=%s accelerate=%s diffusers=%s runpod=%s torch=%s",
+        sys.version.split()[0],
+        _package_version("accelerate"),
+        _package_version("diffusers"),
+        _package_version("runpod"),
+        _package_version("torch"),
+    )
 
     try:
         import runpod

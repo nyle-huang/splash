@@ -7,6 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PATH=/opt/venv/bin:$PATH \
     HF_HOME=/runpod-volume/hf_home \
     PCP_OUTPUT_ROOT=/runpod-volume/runtime_outputs \
+    PCP_WORKER_LOG_PATH=/runpod-volume/logs/runpod_worker.log \
     PCP_RETRIEVAL_INDEX_PATH=/workspace/product_campaign_pipeline/data/creative_ranking/retrieval_index.train_top1024.json \
     PCP_DEVICE=cuda \
     PCP_ANALYSIS_DEVICE=cpu \
@@ -39,6 +40,6 @@ RUN python3 -m venv /opt/venv \
  && pip install -e ".[generation,vision,storage,gpu]" \
  && pip install -r requirements.runpod.txt
 
-RUN mkdir -p /runpod-volume/runtime_outputs /runpod-volume/hf_home
+RUN mkdir -p /runpod-volume/runtime_outputs /runpod-volume/hf_home /runpod-volume/logs
 
 CMD ["python", "-m", "product_campaign_pipeline.runpod_worker"]

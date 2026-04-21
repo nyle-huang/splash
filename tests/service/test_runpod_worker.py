@@ -154,3 +154,19 @@ def test_handle_public_generation_job_runs_internal_warmup(tmp_path: Path) -> No
     assert payload["request_id"] == "warmup-job"
     assert payload["warmup"]["generation_pipeline_loaded"] is True
     warmup_mock.assert_called_once_with(include_generation=True)
+
+
+def test_handle_public_generation_job_runs_internal_ping_without_runtime_cache() -> None:
+    payload = handle_public_generation_job(
+        {
+            "id": "ping-job",
+            "input": {
+                "_internal_ping": True,
+            },
+        },
+    )
+
+    assert payload["status"] == "succeeded"
+    assert payload["request_id"] == "ping-job"
+    assert payload["versions"]["python"]
+    assert "accelerate" in payload["versions"]

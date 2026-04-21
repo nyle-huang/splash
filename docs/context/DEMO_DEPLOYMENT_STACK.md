@@ -114,7 +114,20 @@ For the cost-optimized public demo, Runpod should attach a `100GB` network
 volume at `/runpod-volume`. The serverless image defaults `HF_HOME` to
 `/runpod-volume/hf_home` and `PCP_OUTPUT_ROOT` to
 `/runpod-volume/runtime_outputs` so model downloads and runtime artifacts survive
-worker cold starts. Direct Runpod API calls can populate the cache with:
+worker cold starts. The worker also writes persistent diagnostics to
+`/runpod-volume/logs/runpod_worker.log`.
+
+Direct Runpod API calls can verify worker dispatch without loading models with:
+
+```json
+{
+  "input": {
+    "_internal_ping": true
+  }
+}
+```
+
+Direct Runpod API calls can populate the cache with:
 
 ```json
 {
