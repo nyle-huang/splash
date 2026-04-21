@@ -39,6 +39,7 @@ from product_campaign_pipeline.review_batch import (
     filter_retrieval_candidates,
     filter_scene_retrieval_candidates,
     infer_canonical_product_type,
+    infer_casting_note,
     infer_category,
     infer_evidence_caption,
     infer_functional_subtype_hint,
@@ -166,6 +167,27 @@ def test_build_localized_product_uses_canonical_type_for_weak_phrase() -> None:
     assert localized.identity.support_mode == "portable_flexible"
     assert localized.identity.default_scene_family == "fashion_lifestyle"
     assert "tote bag" in localized.identity.phrase
+
+
+def test_build_localized_product_accepts_live_localization_bbox_type() -> None:
+    record = _localization_record()
+    record = LocalizationArtifactRecord(
+        id=record.id,
+        product_title=record.product_title,
+        source_page_url=record.source_page_url,
+        source_image_url=record.source_image_url,
+        local_image_path=record.local_image_path,
+        selected_phrase=record.selected_phrase,
+        selected_confidence=record.selected_confidence,
+        selected_box=LocalizationBoundingBox(x0=92, y0=47, x1=469, y1=731),
+        overlay_path=record.overlay_path,
+        crop_path=record.crop_path,
+        mask_path=record.mask_path,
+    )
+
+    localized = build_localized_product(_seed_record(), record)
+
+    assert localized.bbox == BoundingBox(x0=92, y0=47, x1=469, y1=731)
 
 
 def test_wallet_token_does_not_trigger_wall_mount_affordance() -> None:
@@ -3297,6 +3319,19 @@ def test_select_casting_alignment_eval_prompts_uses_feminine_wallet_prompt_famil
     assert prompts is not None
     assert any("feminine-coded" in prompt for prompt in prompts["positive"])
     assert any("masculine-coded" in prompt for prompt in prompts["negative"])
+
+
+def test_infer_casting_note_handles_formal_bag_language() -> None:
+    note = infer_casting_note(
+        category="bag",
+        canonical_product_type="handbag",
+        product_title="Structured classic office tote",
+        hint_phrases=("minimal", "refined"),
+        observed_evidence=ObservedEvidenceSpec(),
+    )
+
+    assert note is not None
+    assert "refined and neutral" in note
 
 
 def test_compare_compact_product_prominence_prefers_larger_product_presence() -> None:

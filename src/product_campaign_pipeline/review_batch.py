@@ -1594,6 +1594,11 @@ def infer_casting_note(
             "If a person appears, keep the hand styling and casting understated and accessory-compatible instead of "
             "masculine formal or business-coded."
         )
+    if tokens.intersection(formal_tokens):
+        return (
+            "If a person appears, keep the casting refined and neutral without drifting into office-formal or corporate styling."
+        )
+    return None
 
 
 def select_casting_alignment_eval_prompts(
@@ -1633,11 +1638,6 @@ def select_functional_subtype_eval_prompts(
         "positive": tuple(template.format(product=label) for template in prompts["positive"]),
         "negative": tuple(template.format(product=label) for template in prompts["negative"]),
     }
-    if tokens.intersection(formal_tokens):
-        return (
-            "If a person appears, keep the casting refined and neutral without drifting into office-formal or corporate styling."
-        )
-    return None
 
 
 def build_localized_product(
@@ -1732,7 +1732,7 @@ def build_localized_product(
         hint_phrases=seed.hint_phrases,
         observed_evidence=observed_evidence,
     )
-    box = record.selected_box or BoundingBox(x0=0, y0=0, x1=512, y1=512)
+    box = _coerce_localized_product_bbox(record.selected_box)
     return LocalizedProduct(
         source_image=str(record.local_image_path),
         phrase=phrase,
@@ -1766,6 +1766,28 @@ def build_localized_product(
             observed_evidence=observed_evidence,
         ),
     )
+
+
+def _coerce_localized_product_bbox(box: Any | None) -> BoundingBox:
+    if box is None:
+        return BoundingBox(x0=0, y0=0, x1=512, y1=512)
+    if isinstance(box, BoundingBox):
+        return box
+    if isinstance(box, dict):
+        return BoundingBox(
+            x0=int(box["x0"]),
+            y0=int(box["y0"]),
+            x1=int(box["x1"]),
+            y1=int(box["y1"]),
+        )
+    if all(hasattr(box, attr) for attr in ("x0", "y0", "x1", "y1")):
+        return BoundingBox(
+            x0=int(box.x0),
+            y0=int(box.y0),
+            x1=int(box.x1),
+            y1=int(box.y1),
+        )
+    raise TypeError(f"unsupported localization bounding box type: {type(box).__name__}")
 
 
 def infer_observed_evidence(
