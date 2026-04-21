@@ -36,7 +36,7 @@ COPY data/creative_ranking/retrieval_index.train_top1024.json ./data/creative_ra
 RUN python3 -m venv /opt/venv \
  && pip install --upgrade pip setuptools wheel \
  && pip install --index-url https://download.pytorch.org/whl/cu124 torch torchvision \
- && pip install -e ".[generation,vision,storage]" \
+ && pip install -e ".[generation,vision,storage,gpu]" \
  && pip install -r requirements.runpod.txt
 
 RUN mkdir -p /runpod-volume/runtime_outputs /runpod-volume/hf_home
