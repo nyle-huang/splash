@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shutil
+import time
 from pathlib import Path
 from typing import Any, Literal
 
@@ -42,6 +44,8 @@ from product_campaign_pipeline.review_batch import (
     select_reinvention_candidate_modes_for_line,
     should_strengthen_dominant_body_color_guidance,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 
 class BusinessPriorInferenceRequest(BaseModel):
@@ -114,6 +118,24 @@ class BusinessPriorInferenceResult(BaseModel):
     invalid_reason: str | None = None
 
 
+def _record_timing(
+    timings: dict[str, float],
+    *,
+    request_id: str,
+    stage: str,
+    started_at: float,
+) -> float:
+    elapsed_seconds = time.perf_counter() - started_at
+    timings[stage] = round(elapsed_seconds, 4)
+    LOGGER.info(
+        "Business-prior inference stage completed. request_id=%s stage=%s elapsed_seconds=%.3f",
+        request_id,
+        stage,
+        elapsed_seconds,
+    )
+    return elapsed_seconds
+
+
 def run_business_prior_inference(
     request: BusinessPriorInferenceRequest | dict[str, Any],
     *,
@@ -129,6 +151,8 @@ def run_business_prior_inference(
         else BusinessPriorInferenceRequest.model_validate(request)
     )
     request_id = _resolve_request_id(req)
+    total_started_at = time.perf_counter()
+    stage_timings: dict[str, float] = {}
     request_dir = Path(req.output_dir) / request_id
     localization_dir = request_dir / "localization"
     images_dir = request_dir / "images"
@@ -142,6 +166,7 @@ def run_business_prior_inference(
     if not source_image.exists():
         raise FileNotFoundError(f"source image does not exist: {source_image}")
 
+    stage_started_at = time.perf_counter()
     localizer = localization_pipeline or build_model_backed_localization_pipeline(
         device=req.localization_device
     )
@@ -158,7 +183,26 @@ def run_business_prior_inference(
         localization_dir,
         selected_mask=selected_mask,
     )
+    _record_timing(
+        stage_timings,
+        request_id=request_id,
+        stage="source_localization",
+        started_at=stage_started_at,
+    )
     if selected_mask is None or artifacts is None:
+        total_elapsed_seconds = _record_timing(
+            stage_timings,
+            request_id=request_id,
+            stage="total",
+            started_at=total_started_at,
+        )
+        LOGGER.info(
+            "Business-prior inference completed. request_id=%s status=invalid_source "
+            "reason=localization_failed total_elapsed_seconds=%.3f stage_timings=%s",
+            request_id,
+            total_elapsed_seconds,
+            json.dumps(stage_timings, sort_keys=True),
+        )
         return BusinessPriorInferenceResult(
             status="invalid_source",
             request_id=request_id,
@@ -193,13 +237,6 @@ def run_business_prior_inference(
         crop_path=Path(artifacts.crop_path),
         mask_path=Path(artifacts.mask_path),
     )
-    retrieval_items = retrieval_index or load_retrieval_index(req.retrieval_index_path)
-    analysis_device = req.analysis_device if req.analysis_device != "auto" else (
-        "cpu" if req.device != "cpu" else req.device
-    )
-    analysis_backbone = backbone or VisionBackbone(device=analysis_device)
-    localized = build_localized_product(seed, localization_record, backbone=analysis_backbone)
-
     localization_payload = {
         "selected_phrase": artifacts.phrase,
         "selected_confidence": round(float(artifacts.confidence), 4),
@@ -208,7 +245,41 @@ def run_business_prior_inference(
         "overlay_path": artifacts.overlay_path,
     }
 
+    stage_started_at = time.perf_counter()
+    retrieval_items = retrieval_index or load_retrieval_index(req.retrieval_index_path)
+    _record_timing(
+        stage_timings,
+        request_id=request_id,
+        stage="load_retrieval_index",
+        started_at=stage_started_at,
+    )
+    stage_started_at = time.perf_counter()
+    analysis_device = req.analysis_device if req.analysis_device != "auto" else (
+        "cpu" if req.device != "cpu" else req.device
+    )
+    analysis_backbone = backbone or VisionBackbone(device=analysis_device)
+    localized = build_localized_product(seed, localization_record, backbone=analysis_backbone)
+    _record_timing(
+        stage_timings,
+        request_id=request_id,
+        stage="build_localized_product",
+        started_at=stage_started_at,
+    )
+
     if localized.identity.observed_evidence.source_validity != "valid":
+        total_elapsed_seconds = _record_timing(
+            stage_timings,
+            request_id=request_id,
+            stage="total",
+            started_at=total_started_at,
+        )
+        LOGGER.info(
+            "Business-prior inference completed. request_id=%s status=invalid_source "
+            "reason=invalid_source_photo total_elapsed_seconds=%.3f stage_timings=%s",
+            request_id,
+            total_elapsed_seconds,
+            json.dumps(stage_timings, sort_keys=True),
+        )
         return BusinessPriorInferenceResult(
             status="invalid_source",
             request_id=request_id,
@@ -222,6 +293,7 @@ def run_business_prior_inference(
             invalid_reason="invalid_source_photo",
         )
 
+    stage_started_at = time.perf_counter()
     prior = build_business_prior(
         seed,
         localized,
@@ -237,12 +309,24 @@ def run_business_prior_inference(
             "editorial_interior",
         )
     )
-    support_relation = prior.support_relation or default_support_relation_for_identity(localized.identity)
+    support_relation = prior.support_relation or default_support_relation_for_identity(
+        localized.identity
+    )
+    _record_timing(
+        stage_timings,
+        request_id=request_id,
+        stage="build_business_prior",
+        started_at=stage_started_at,
+    )
     candidate_modes = tuple(req.candidate_modes) or select_reinvention_candidate_modes_for_line(
         localized.identity,
         line_name="business_prior",
     )
-    candidate_steps = max(req.num_inference_steps, 6) if len(candidate_modes) > 1 else req.num_inference_steps
+    candidate_steps = (
+        max(req.num_inference_steps, 6)
+        if len(candidate_modes) > 1
+        else req.num_inference_steps
+    )
     candidate_guidance_scale = req.guidance_scale
     if localized.identity.requires_human_model or localized.identity.interaction_mode in {
         "worn",
@@ -255,6 +339,7 @@ def run_business_prior_inference(
         candidate_steps = max(candidate_steps, 8)
         candidate_guidance_scale = max(candidate_guidance_scale, 1.15)
 
+    stage_started_at = time.perf_counter()
     generation_client = client or Flux2KleinClient(
         model_id=req.model_id,
         device=req.device,
@@ -263,27 +348,49 @@ def run_business_prior_inference(
         sequential_cpu_offload=req.sequential_cpu_offload,
         attention_slicing=req.attention_slicing,
     )
+    _record_timing(
+        stage_timings,
+        request_id=request_id,
+        stage="prepare_generation_client",
+        started_at=stage_started_at,
+    )
+    stage_started_at = time.perf_counter()
     generated_focus_localizer = generated_localizer
     if not req.skip_analysis and generated_focus_localizer is None:
         generated_focus_localizer = build_model_backed_localization_pipeline(
             device="cpu" if req.device != "cpu" else req.device
         )
+    _record_timing(
+        stage_timings,
+        request_id=request_id,
+        stage="prepare_generated_localizer",
+        started_at=stage_started_at,
+    )
     composer = PromptComposer()
     candidate_rows: list[dict[str, Any]] = []
     base_seed = req.seed if req.seed is not None else int(prior.metadata.get("creative_seed", 1000))
 
     for candidate_index, reinvention_mode in enumerate(candidate_modes):
+        candidate_total_started_at = time.perf_counter()
         candidate_seed = base_seed + _line_seed_offset("business_prior") + candidate_index * 101
+        stage_started_at = time.perf_counter()
         prompt_spec = composer.compose_business_prior(
             localized,
             prior,
             seed=candidate_seed,
             reinvention_mode=reinvention_mode,
         )
+        _record_timing(
+            stage_timings,
+            request_id=request_id,
+            stage=f"candidate_{candidate_index:02d}_{reinvention_mode}_compose_prompt",
+            started_at=stage_started_at,
+        )
         candidate_output_path = (
             images_dir / f"{request_id}.business_prior.png"
             if len(candidate_modes) == 1
-            else candidates_dir / f"{request_id}.business_prior.{candidate_index:02d}.{reinvention_mode}.png"
+            else candidates_dir
+            / f"{request_id}.business_prior.{candidate_index:02d}.{reinvention_mode}.png"
         )
         generation_request = build_generation_request(
             generation_client,
@@ -298,7 +405,15 @@ def run_business_prior_inference(
             num_inference_steps=candidate_steps,
             guidance_scale=candidate_guidance_scale,
         )
+        stage_started_at = time.perf_counter()
         generation = generation_client.generate(generation_request)
+        _record_timing(
+            stage_timings,
+            request_id=request_id,
+            stage=f"candidate_{candidate_index:02d}_{reinvention_mode}_generate",
+            started_at=stage_started_at,
+        )
+        stage_started_at = time.perf_counter()
         maybe_repair_generated_dominant_body_color(
             Path(generation.output_path),
             localized,
@@ -307,11 +422,24 @@ def run_business_prior_inference(
             save_artifacts=save_localization_artifacts,
             select_mask=select_primary_mask,
         )
+        _record_timing(
+            stage_timings,
+            request_id=request_id,
+            stage=f"candidate_{candidate_index:02d}_{reinvention_mode}_color_repair",
+            started_at=stage_started_at,
+        )
+        stage_started_at = time.perf_counter()
         prompt_readiness = assess_prompt_readiness(
             localized,
             prompt_spec,
             scene_family=scene_family,
             support_relation=support_relation,
+        )
+        _record_timing(
+            stage_timings,
+            request_id=request_id,
+            stage=f"candidate_{candidate_index:02d}_{reinvention_mode}_prompt_readiness",
+            started_at=stage_started_at,
         )
         if req.skip_analysis:
             category_consistency: dict[str, Any] = {}
@@ -321,6 +449,7 @@ def run_business_prior_inference(
             if reinvention_mode == "balanced":
                 candidate_score += 0.02
         else:
+            stage_started_at = time.perf_counter()
             focus_artifacts = extract_generated_focus_artifacts(
                 Path(generation.output_path),
                 localized,
@@ -329,13 +458,31 @@ def run_business_prior_inference(
                 save_artifacts=save_localization_artifacts,
                 select_mask=select_primary_mask,
             )
+            _record_timing(
+                stage_timings,
+                request_id=request_id,
+                stage=f"candidate_{candidate_index:02d}_{reinvention_mode}_generated_focus",
+                started_at=stage_started_at,
+            )
+            stage_started_at = time.perf_counter()
             category_consistency = assess_category_consistency(
                 generation.output_path,
                 expected_category=localized.identity.category,
-                expected_product_type=localized.identity.canonical_product_type or localized.identity.category,
+                expected_product_type=(
+                    localized.identity.canonical_product_type or localized.identity.category
+                ),
                 backbone=analysis_backbone,
-                focus_image_path=None if focus_artifacts is None else focus_artifacts.get("crop_path"),
+                focus_image_path=(
+                    None if focus_artifacts is None else focus_artifacts.get("crop_path")
+                ),
             )
+            _record_timing(
+                stage_timings,
+                request_id=request_id,
+                stage=f"candidate_{candidate_index:02d}_{reinvention_mode}_category_qa",
+                started_at=stage_started_at,
+            )
+            stage_started_at = time.perf_counter()
             semantic_plausibility = assess_semantic_plausibility(
                 generation.output_path,
                 localized.identity,
@@ -346,6 +493,13 @@ def run_business_prior_inference(
                 generated_localizer=generated_focus_localizer,
                 product_photo_factory=ProductPhoto,
             )
+            _record_timing(
+                stage_timings,
+                request_id=request_id,
+                stage=f"candidate_{candidate_index:02d}_{reinvention_mode}_semantic_qa",
+                started_at=stage_started_at,
+            )
+            stage_started_at = time.perf_counter()
             evidence_consistency = assess_evidence_consistency(
                 generation.output_path,
                 localized,
@@ -356,10 +510,23 @@ def run_business_prior_inference(
                 select_mask=select_primary_mask,
                 focus_artifacts=focus_artifacts,
             )
+            _record_timing(
+                stage_timings,
+                request_id=request_id,
+                stage=f"candidate_{candidate_index:02d}_{reinvention_mode}_evidence_qa",
+                started_at=stage_started_at,
+            )
+            stage_started_at = time.perf_counter()
             candidate_score = score_generation_candidate(
                 category_consistency=category_consistency,
                 semantic_plausibility=semantic_plausibility,
                 evidence_consistency=evidence_consistency,
+            )
+            _record_timing(
+                stage_timings,
+                request_id=request_id,
+                stage=f"candidate_{candidate_index:02d}_{reinvention_mode}_score",
+                started_at=stage_started_at,
             )
         candidate_rows.append(
             {
@@ -388,12 +555,25 @@ def run_business_prior_inference(
         )
         if req.skip_analysis:
             generation_client.reset_pipeline()
+        _record_timing(
+            stage_timings,
+            request_id=request_id,
+            stage=f"candidate_{candidate_index:02d}_{reinvention_mode}_total",
+            started_at=candidate_total_started_at,
+        )
 
+    stage_started_at = time.perf_counter()
     selected_row = _select_candidate_row(candidate_rows, localized)
     final_output_path = images_dir / f"{request_id}.business_prior.png"
     if Path(selected_row["output_path"]).resolve() != final_output_path.resolve():
         shutil.copy2(selected_row["output_path"], final_output_path)
         selected_row["output_path"] = str(final_output_path)
+    _record_timing(
+        stage_timings,
+        request_id=request_id,
+        stage="select_and_finalize_candidate",
+        started_at=stage_started_at,
+    )
 
     candidate_scores = [
         BusinessPriorCandidateScore(
@@ -408,6 +588,22 @@ def run_business_prior_inference(
         )
         for row in candidate_rows
     ]
+
+    total_elapsed_seconds = _record_timing(
+        stage_timings,
+        request_id=request_id,
+        stage="total",
+        started_at=total_started_at,
+    )
+    LOGGER.info(
+        "Business-prior inference completed. request_id=%s status=ok "
+        "candidate_count=%d selected_candidate_mode=%s total_elapsed_seconds=%.3f stage_timings=%s",
+        request_id,
+        len(candidate_rows),
+        str(selected_row["candidate_mode"]),
+        total_elapsed_seconds,
+        json.dumps(stage_timings, sort_keys=True),
+    )
 
     return BusinessPriorInferenceResult(
         status="ok",
@@ -433,7 +629,12 @@ def run_business_prior_inference(
 
 
 def _resolve_request_id(request: BusinessPriorInferenceRequest) -> str:
-    for candidate in (request.request_id, request.product_id, Path(request.image_path).stem, request.product_title):
+    for candidate in (
+        request.request_id,
+        request.product_id,
+        Path(request.image_path).stem,
+        request.product_title,
+    ):
         if candidate:
             slug = re.sub(r"[^a-z0-9]+", "-", str(candidate).lower()).strip("-")
             if slug:
@@ -454,12 +655,16 @@ def _select_candidate_row(candidate_rows: list[dict[str, Any]], localized: Any) 
     if category_consistent_rows:
         selection_pool = category_consistent_rows
     ghost_free_rows = [
-        row for row in selection_pool if not row["semantic_plausibility"].get("ghost_composite_flag", False)
+        row
+        for row in selection_pool
+        if not row["semantic_plausibility"].get("ghost_composite_flag", False)
     ]
     if ghost_free_rows:
         selection_pool = ghost_free_rows
     background_resolved_rows = [
-        row for row in selection_pool if not row["semantic_plausibility"].get("background_collapse_flag", False)
+        row
+        for row in selection_pool
+        if not row["semantic_plausibility"].get("background_collapse_flag", False)
     ]
     if background_resolved_rows:
         selection_pool = background_resolved_rows
@@ -500,7 +705,8 @@ def _select_candidate_row(candidate_rows: list[dict[str, Any]], localized: Any) 
             if dress_layering_preferred_rows:
                 selection_pool = dress_layering_preferred_rows
     single_model_margin_values = [
-        float(row["semantic_plausibility"].get("single_model_margin", 0.0)) for row in selection_pool
+        float(row["semantic_plausibility"].get("single_model_margin", 0.0))
+        for row in selection_pool
     ]
     if single_model_margin_values:
         best_single_model_margin = max(single_model_margin_values)

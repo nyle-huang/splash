@@ -72,7 +72,11 @@ def test_handle_public_generation_job_returns_public_success_result(tmp_path: Pa
         patch.object(cache, "ensure_retrieval_index", return_value=[]),
         patch.object(cache, "ensure_backbone", return_value=object()),
         patch.object(cache, "ensure_client", return_value=object()),
-        patch.object(cache, "ensure_generated_localizer", return_value=object()),
+        patch.object(
+            cache,
+            "ensure_generated_localizer",
+            return_value=object(),
+        ) as generated_localizer_mock,
         patch(
             "product_campaign_pipeline.runpod_worker.run_business_prior_inference",
             return_value=fake_result,
@@ -93,6 +97,9 @@ def test_handle_public_generation_job_returns_public_success_result(tmp_path: Pa
     assert runtime_request.cpu_offload is True
     assert runtime_request.sequential_cpu_offload is False
     assert runtime_request.attention_slicing is True
+    assert runtime_request.candidate_modes == []
+    assert runtime_request.skip_analysis is False
+    assert run_mock.call_args.kwargs["generated_localizer"] is generated_localizer_mock.return_value
 
 
 def test_runtime_settings_parse_flux_offload_env(monkeypatch) -> None:

@@ -100,11 +100,13 @@ def handle_public_generation_job(
     request_id = request.request_id or fallback_request_id
     try:
         runtime_cache = cache or _get_default_runtime_cache()
+        stage_started_at = time.perf_counter()
         source_image_path = _save_public_source_image(
             request,
             output_root=runtime_cache.settings.output_root,
             request_id=request_id,
         )
+        _log_worker_stage(request_id, "save_public_source_image", stage_started_at)
         from product_campaign_pipeline.production import BusinessPriorInferenceRequest
 
         runtime_request = BusinessPriorInferenceRequest(
@@ -129,15 +131,34 @@ def handle_public_generation_job(
             sequential_cpu_offload=runtime_cache.settings.sequential_cpu_offload,
             attention_slicing=runtime_cache.settings.attention_slicing,
         )
+        stage_started_at = time.perf_counter()
+        localization_pipeline = runtime_cache.ensure_localization_pipeline()
+        _log_worker_stage(request_id, "ensure_source_localizer", stage_started_at)
+        stage_started_at = time.perf_counter()
+        retrieval_index = runtime_cache.ensure_retrieval_index()
+        _log_worker_stage(request_id, "ensure_retrieval_index", stage_started_at)
+        stage_started_at = time.perf_counter()
+        backbone = runtime_cache.ensure_backbone()
+        _log_worker_stage(request_id, "ensure_analysis_backbone", stage_started_at)
+        stage_started_at = time.perf_counter()
+        client = runtime_cache.ensure_client()
+        _log_worker_stage(request_id, "ensure_generation_client", stage_started_at)
+        stage_started_at = time.perf_counter()
+        generated_localizer = runtime_cache.ensure_generated_localizer()
+        _log_worker_stage(request_id, "ensure_generated_localizer", stage_started_at)
+        stage_started_at = time.perf_counter()
         result = run_business_prior_inference(
             runtime_request,
-            localization_pipeline=runtime_cache.ensure_localization_pipeline(),
-            retrieval_index=runtime_cache.ensure_retrieval_index(),
-            backbone=runtime_cache.ensure_backbone(),
-            client=runtime_cache.ensure_client(),
-            generated_localizer=runtime_cache.ensure_generated_localizer(),
+            localization_pipeline=localization_pipeline,
+            retrieval_index=retrieval_index,
+            backbone=backbone,
+            client=client,
+            generated_localizer=generated_localizer,
         )
+        _log_worker_stage(request_id, "run_business_prior_inference", stage_started_at)
+        stage_started_at = time.perf_counter()
         worker_result = _worker_result_from_inference(result)
+        _log_worker_stage(request_id, "build_public_worker_result", stage_started_at)
     except ValueError as exc:
         LOGGER.exception("Runpod generation job failed with ValueError after request validation.")
         worker_result = WorkerGenerationResult(
@@ -341,6 +362,17 @@ def _job_input_keys(job: dict[str, Any]) -> list[str]:
     if not isinstance(job_input, dict):
         return []
     return sorted(str(key) for key in job_input)
+
+
+def _log_worker_stage(request_id: str, stage: str, started_at: float) -> float:
+    elapsed_seconds = time.perf_counter() - started_at
+    LOGGER.info(
+        "Runpod worker stage completed. request_id=%s stage=%s elapsed_seconds=%.3f",
+        request_id,
+        stage,
+        elapsed_seconds,
+    )
+    return elapsed_seconds
 
 
 def _package_version(package_name: str) -> str | None:
