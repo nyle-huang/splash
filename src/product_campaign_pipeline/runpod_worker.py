@@ -63,10 +63,43 @@ def handle_public_generation_job(
         )
         return result
 
+    debug_errors = _debug_errors_enabled(job)
+    try:
+        request = PublicInferenceRequest.model_validate(_public_job_input(job))
+    except ValidationError:
+        worker_result = WorkerGenerationResult(
+            status="failed",
+            request_id=fallback_request_id,
+            summary="The request payload was invalid and could not be processed.",
+            error_code="invalid_request",
+        )
+        payload = worker_result.model_dump(mode="json")
+        LOGGER.info(
+            "Runpod generation job completed. request_id=%s status=%s elapsed_seconds=%.3f",
+            fallback_request_id,
+            payload.get("status"),
+            time.perf_counter() - started_at,
+        )
+        return payload
+    except ValueError:
+        worker_result = WorkerGenerationResult(
+            status="failed",
+            request_id=fallback_request_id,
+            summary="The request payload failed validation and could not be processed.",
+            error_code="invalid_request",
+        )
+        payload = worker_result.model_dump(mode="json")
+        LOGGER.info(
+            "Runpod generation job completed. request_id=%s status=%s elapsed_seconds=%.3f",
+            fallback_request_id,
+            payload.get("status"),
+            time.perf_counter() - started_at,
+        )
+        return payload
+
+    request_id = request.request_id or fallback_request_id
     try:
         runtime_cache = cache or _get_default_runtime_cache()
-        request = PublicInferenceRequest.model_validate(job.get("input", {}))
-        request_id = request.request_id or fallback_request_id
         source_image_path = _save_public_source_image(
             request,
             output_root=runtime_cache.settings.output_root,
@@ -102,24 +135,22 @@ def handle_public_generation_job(
             generated_localizer=runtime_cache.ensure_generated_localizer(),
         )
         worker_result = _worker_result_from_inference(result)
-    except ValidationError:
+    except ValueError as exc:
+        LOGGER.exception("Runpod generation job failed with ValueError after request validation.")
         worker_result = WorkerGenerationResult(
             status="failed",
-            request_id=fallback_request_id,
-            summary="The request payload was invalid and could not be processed.",
-            error_code="invalid_request",
-        )
-    except ValueError:
-        worker_result = WorkerGenerationResult(
-            status="failed",
-            request_id=fallback_request_id,
-            summary="The request payload failed validation and could not be processed.",
-            error_code="invalid_request",
+            request_id=request_id,
+            summary=_failure_summary(
+                "The generation job failed before a final image could be produced.",
+                exc,
+                debug_errors=debug_errors,
+            ),
+            error_code="inference_failed",
         )
     except FileNotFoundError:
         worker_result = WorkerGenerationResult(
             status="failed",
-            request_id=fallback_request_id,
+            request_id=request_id,
             summary="The uploaded image could not be staged for generation.",
             error_code="input_staging_failed",
         )
@@ -128,15 +159,23 @@ def handle_public_generation_job(
         if _is_runtime_unavailable_exception(exc):
             worker_result = WorkerGenerationResult(
                 status="failed",
-                request_id=fallback_request_id,
-                summary="The generation runtime is currently unavailable.",
+                request_id=request_id,
+                summary=_failure_summary(
+                    "The generation runtime is currently unavailable.",
+                    exc,
+                    debug_errors=debug_errors,
+                ),
                 error_code="runtime_unavailable",
             )
         else:
             worker_result = WorkerGenerationResult(
                 status="failed",
-                request_id=fallback_request_id,
-                summary="The generation job failed before a final image could be produced.",
+                request_id=request_id,
+                summary=_failure_summary(
+                    "The generation job failed before a final image could be produced.",
+                    exc,
+                    debug_errors=debug_errors,
+                ),
                 error_code="inference_failed",
             )
     payload = worker_result.model_dump(mode="json")
@@ -213,6 +252,22 @@ def _is_internal_warmup_job(job: dict[str, Any]) -> bool:
     )
 
 
+def _debug_errors_enabled(job: dict[str, Any]) -> bool:
+    job_input = job.get("input")
+    return isinstance(job_input, dict) and bool(job_input.get("_internal_debug"))
+
+
+def _public_job_input(job: dict[str, Any]) -> object:
+    job_input = job.get("input", {})
+    if not isinstance(job_input, dict):
+        return job_input
+    if "_internal_debug" not in job_input:
+        return job_input
+    public_input = dict(job_input)
+    public_input.pop("_internal_debug", None)
+    return public_input
+
+
 def _warmup_include_generation(job: dict[str, Any]) -> bool:
     job_input = job.get("input")
     if not isinstance(job_input, dict):
@@ -221,6 +276,15 @@ def _warmup_include_generation(job: dict[str, Any]) -> bool:
     if isinstance(raw_value, str):
         return raw_value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(raw_value)
+
+
+def _failure_summary(base_summary: str, exc: Exception, *, debug_errors: bool) -> str:
+    if not debug_errors:
+        return base_summary
+    detail = " ".join(str(exc).split())
+    if len(detail) > 240:
+        detail = f"{detail[:237]}..."
+    return f"{base_summary} Debug detail: {type(exc).__name__}: {detail}"
 
 
 def _warmup_default_runtime_on_start_if_configured() -> None:

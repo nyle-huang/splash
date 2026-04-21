@@ -92,6 +92,93 @@ def test_handle_public_generation_job_returns_public_success_result(tmp_path: Pa
     assert Path(runtime_request.image_path).exists()
 
 
+def test_handle_public_generation_job_ignores_internal_debug_flag(tmp_path: Path) -> None:
+    cache = _runtime_cache(tmp_path)
+    output_path = (
+        Path(cache.settings.output_root)
+        / "demo-request"
+        / "images"
+        / "demo-request.business_prior.png"
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (24, 24), (80, 120, 220)).save(output_path, format="PNG")
+    fake_result = BusinessPriorInferenceResult(
+        status="ok",
+        request_id="demo-request",
+        request_output_dir=str(output_path.parent.parent),
+        source_image_path=str(tmp_path / "source.png"),
+        localization={"selected_phrase": "wallet"},
+        source_validity="valid",
+        output_path=str(output_path),
+        selected_candidate_mode="balanced",
+        candidate_count=1,
+    )
+    job = _public_job_payload()
+    assert isinstance(job["input"], dict)
+    job["input"]["_internal_debug"] = True
+
+    with (
+        patch.object(cache, "ensure_localization_pipeline", return_value=object()),
+        patch.object(cache, "ensure_retrieval_index", return_value=[]),
+        patch.object(cache, "ensure_backbone", return_value=object()),
+        patch.object(cache, "ensure_client", return_value=object()),
+        patch.object(cache, "ensure_generated_localizer", return_value=object()),
+        patch(
+            "product_campaign_pipeline.runpod_worker.run_business_prior_inference",
+            return_value=fake_result,
+        ) as run_mock,
+    ):
+        payload = handle_public_generation_job(job, cache=cache)
+
+    assert payload["status"] == "succeeded"
+    assert payload["request_id"] == "demo-request"
+    assert run_mock.call_args.args[0].request_id == "demo-request"
+
+
+def test_handle_public_generation_job_reports_inference_value_error_with_debug(
+    tmp_path: Path,
+) -> None:
+    cache = _runtime_cache(tmp_path)
+    job = _public_job_payload()
+    assert isinstance(job["input"], dict)
+    job["input"]["_internal_debug"] = True
+
+    with (
+        patch.object(cache, "ensure_localization_pipeline", return_value=object()),
+        patch.object(cache, "ensure_retrieval_index", return_value=[]),
+        patch.object(cache, "ensure_backbone", return_value=object()),
+        patch.object(cache, "ensure_client", return_value=object()),
+        patch.object(cache, "ensure_generated_localizer", return_value=object()),
+        patch(
+            "product_campaign_pipeline.runpod_worker.run_business_prior_inference",
+            side_effect=ValueError("simulated downstream failure"),
+        ),
+    ):
+        payload = handle_public_generation_job(job, cache=cache)
+
+    assert payload["status"] == "failed"
+    assert payload["request_id"] == "demo-request"
+    assert payload["error_code"] == "inference_failed"
+    assert "Debug detail: ValueError: simulated downstream failure" in payload["summary"]
+
+
+def test_handle_public_generation_job_keeps_validation_errors_as_invalid_request() -> None:
+    payload = handle_public_generation_job(
+        {
+            "id": "invalid-job",
+            "input": {
+                "image_base64": "not-base64",
+                "mime_type": "image/jpeg",
+                "product_title": "Broken upload",
+            },
+        },
+    )
+
+    assert payload["status"] == "failed"
+    assert payload["request_id"] == "invalid-job"
+    assert payload["error_code"] == "invalid_request"
+
+
 def test_handle_public_generation_job_returns_invalid_source_details(tmp_path: Path) -> None:
     cache = _runtime_cache(tmp_path)
     fake_result = BusinessPriorInferenceResult(
