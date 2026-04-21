@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from PIL import Image
@@ -110,12 +112,70 @@ def test_runtime_settings_parse_flux_offload_env(monkeypatch) -> None:
     monkeypatch.setenv("PCP_CPU_OFFLOAD", "0")
     monkeypatch.setenv("PCP_SEQUENTIAL_CPU_OFFLOAD", "1")
     monkeypatch.setenv("PCP_ATTENTION_SLICING", "false")
+    monkeypatch.setenv("PCP_GENERATED_LOCALIZATION_DEVICE", "cuda")
 
     settings = BusinessPriorRuntimeSettings.from_env()
 
     assert settings.cpu_offload is False
     assert settings.sequential_cpu_offload is True
     assert settings.attention_slicing is False
+    assert settings.generated_localization_device == "cuda"
+
+
+def test_generated_localizer_defaults_to_cpu_when_generation_uses_cuda(
+    tmp_path: Path,
+) -> None:
+    cache = RuntimeCache(
+        BusinessPriorRuntimeSettings(
+            output_root=str(tmp_path / "runtime"),
+            retrieval_index_path=str(tmp_path / "retrieval.json"),
+            device="cuda",
+            generated_localization_device=None,
+        )
+    )
+    calls: list[str] = []
+
+    def fake_builder(*, device: str) -> object:
+        calls.append(device)
+        return object()
+
+    fake_localization_module = SimpleNamespace(
+        build_model_backed_localization_pipeline=fake_builder
+    )
+    with patch.dict(
+        sys.modules,
+        {"product_campaign_pipeline.localization": fake_localization_module},
+    ):
+        cache.ensure_generated_localizer()
+
+    assert calls == ["cpu"]
+
+
+def test_generated_localizer_uses_configured_device(tmp_path: Path) -> None:
+    cache = RuntimeCache(
+        BusinessPriorRuntimeSettings(
+            output_root=str(tmp_path / "runtime"),
+            retrieval_index_path=str(tmp_path / "retrieval.json"),
+            device="cuda",
+            generated_localization_device="cuda",
+        )
+    )
+    calls: list[str] = []
+
+    def fake_builder(*, device: str) -> object:
+        calls.append(device)
+        return object()
+
+    fake_localization_module = SimpleNamespace(
+        build_model_backed_localization_pipeline=fake_builder
+    )
+    with patch.dict(
+        sys.modules,
+        {"product_campaign_pipeline.localization": fake_localization_module},
+    ):
+        cache.ensure_generated_localizer()
+
+    assert calls == ["cuda"]
 
 
 def test_handle_public_generation_job_ignores_internal_debug_flag(tmp_path: Path) -> None:

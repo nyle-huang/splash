@@ -27,6 +27,7 @@ class BusinessPriorRuntimeSettings(BaseModel):
     device: str = "cuda"
     analysis_device: str = "cpu"
     localization_device: str = "cuda"
+    generated_localization_device: str | None = None
     width: int = 512
     height: int = 512
     num_inference_steps: int = 4
@@ -56,6 +57,7 @@ class BusinessPriorRuntimeSettings(BaseModel):
                 "PCP_LOCALIZATION_DEVICE",
                 cls.model_fields["localization_device"].default,
             ),
+            generated_localization_device=_env_optional("PCP_GENERATED_LOCALIZATION_DEVICE"),
             width=int(os.getenv("PCP_WIDTH", str(cls.model_fields["width"].default))),
             height=int(os.getenv("PCP_HEIGHT", str(cls.model_fields["height"].default))),
             num_inference_steps=int(
@@ -129,9 +131,14 @@ class RuntimeCache:
                 build_model_backed_localization_pipeline,
             )
 
-            device = "cpu" if self.settings.device != "cpu" else self.settings.device
+            device = self._resolve_generated_localization_device()
             self.generated_localizer = build_model_backed_localization_pipeline(device=device)
         return self.generated_localizer
+
+    def _resolve_generated_localization_device(self) -> str:
+        if self.settings.generated_localization_device:
+            return self.settings.generated_localization_device
+        return "cpu" if self.settings.device != "cpu" else self.settings.device
 
     def ensure_backbone(self) -> VisionBackbone:
         if self.backbone is None:
@@ -184,3 +191,11 @@ def _env_flag(name: str, *, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_optional(name: str) -> str | None:
+    raw = os.getenv(name)
+    if raw is None:
+        return None
+    value = raw.strip()
+    return value or None
