@@ -110,13 +110,22 @@ Required worker environment variables:
 - `PCP_DEVICE`
 - `PCP_ANALYSIS_DEVICE`
 - `PCP_LOCALIZATION_DEVICE`
+- `PCP_GENERATED_LOCALIZATION_DEVICE`
 - `PCP_RUNPOD_WORKER_MODE`
 
 For the cost-optimized public demo, Runpod should attach a `100GB` network
 volume at `/runpod-volume`. The serverless image defaults `HF_HOME` to
 `/runpod-volume/hf_home` and `PCP_OUTPUT_ROOT` to
 `/runpod-volume/runtime_outputs` so model downloads and runtime artifacts survive
-worker cold starts. The worker also writes persistent diagnostics to
+worker cold starts. Verify the template `volumeMountPath` after every template
+create or update; the Runpod CLI can silently leave it at `/workspace`, which
+shadows the image workspace and prevents the intended `/runpod-volume` cache
+layout from being used.
+
+Worker startup logs go to stdout by default. Persistent file logging is disabled
+unless `PCP_ENABLE_WORKER_FILE_LOG=1` is set. Leave it disabled for normal
+serverless startup diagnostics so the worker can register before touching the
+network volume. Enable it only for a focused debugging run that needs
 `/runpod-volume/logs/runpod_worker.log`.
 
 The image starts through `product_campaign_pipeline.runpod_entrypoint`.
@@ -173,6 +182,37 @@ GitHub Actions workflow.
 
 ## Verified And Unverified
 
+Current public deployment:
+
+- GitHub Pages site: `https://nyle-huang.github.io/splash/`
+- Azure broker: `https://splash-demo-broker-nh-y1.azurewebsites.net`
+- Azure `PCP_RUNPOD_ENDPOINT_ID`: `7lurkouf1lpzfk`
+- Runpod endpoint: `splash-business-prior-demo-h100-euris3-volume`
+- Runpod endpoint id: `7lurkouf1lpzfk`
+- Runpod template id: `c95jm8srb3`
+- Runpod network volume id: `vb7l0nhag6`
+- Runpod data center: `EUR-IS-3`
+- Runpod GPU: `NVIDIA H100 80GB HBM3`
+- Worker image: `ghcr.io/nyle-huang/splash-business-prior-serverless:f8757122ccaf1845cba3ba521f4558d2f8127c5b`
+
+Deployment evidence from 2026-04-21:
+
+- Cold H100 ping: `delayTime=368.976s`, `executionTime=0.064s`.
+- Warm H100 ping: `delayTime=1.658s`, `executionTime=0.053s`.
+- First valid full-quality H100 run on the new volume:
+  `delayTime=85.698s`, `executionTime=460.792s`, selected mode `reveal`.
+- Warm full-quality H100 run after model load:
+  `delayTime=458.891s`, `executionTime=113.325s`, selected mode `reveal`.
+- Broker invalid-source smoke after Azure endpoint switch:
+  `status=invalid_source` with expected source-quality issues returned through
+  the public broker.
+
+Known operational caveat:
+
+- `EUR-IS-3` H100 fixed execution latency once a worker is running, but Runpod
+  can still throttle or delay dispatch. In the measured warm full-quality run,
+  execution was `113.325s` but provider delay was `458.891s`.
+
 Verified locally:
 
 - request/result contract implementation exists
@@ -181,9 +221,14 @@ Verified locally:
 - static site exists
 - focused broker/worker/site tests exist
 
+Verified live:
+
+- Azure broker submits to the H100 endpoint.
+- H100 endpoint can run the full-quality path with current candidate count,
+  source localizer, generated-output localizer, QA, ranking, and final image
+  output enabled.
+
 Unverified here:
 
-- live Azure deployment behavior
-- live Runpod cold-start behavior
 - billed duration including model load
-- end-to-end public browser session through the final deployed URL
+- end-to-end public browser session after the H100 endpoint switch
