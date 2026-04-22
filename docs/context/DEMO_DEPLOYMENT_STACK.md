@@ -186,16 +186,19 @@ Current public deployment:
 
 - GitHub Pages site: `https://nyle-huang.github.io/splash/`
 - Azure broker: `https://splash-demo-broker-nh-y1.azurewebsites.net`
-- Azure `PCP_RUNPOD_ENDPOINT_ID`: `7lurkouf1lpzfk`
-- Runpod endpoint: `splash-business-prior-demo-h100-euris3-volume`
-- Runpod endpoint id: `7lurkouf1lpzfk`
-- Runpod template id: `c95jm8srb3`
-- Runpod network volume id: `vb7l0nhag6`
-- Runpod data center: `EUR-IS-3`
-- Runpod GPU: `NVIDIA H100 80GB HBM3`
-- Worker image: `ghcr.io/nyle-huang/splash-business-prior-serverless:f8757122ccaf1845cba3ba521f4558d2f8127c5b`
+- Azure `PCP_RUNPOD_ENDPOINT_ID`: `3co74imgg53e3q`
+- Runpod endpoint: `splash-business-prior-demo-pro6000-euris1-volume`
+- Runpod endpoint id: `3co74imgg53e3q`
+- Runpod template: `splash-business-prior-serverless-pro6000-329bb25-nooffload`
+- Runpod template id: `foidwyis7u`
+- Runpod network volume: `splash-business-prior-cache-euris1-pro6000-100gb`
+- Runpod network volume id: `0k9tnlryio`
+- Runpod data center: `EUR-IS-1`
+- Runpod GPU: `NVIDIA RTX PRO 6000`
+- Runpod workers max: `1`
+- Worker image: `ghcr.io/nyle-huang/splash-business-prior-serverless:329bb25079127997415789bb6d0fe9e5a539dc93`
 
-Deployment evidence from 2026-04-21:
+Historical H100 deployment evidence from 2026-04-21:
 
 - Cold H100 ping: `delayTime=368.976s`, `executionTime=0.064s`.
 - Warm H100 ping: `delayTime=1.658s`, `executionTime=0.053s`.
@@ -207,7 +210,7 @@ Deployment evidence from 2026-04-21:
   `status=invalid_source` with expected source-quality issues returned through
   the public broker.
 
-Known operational caveat:
+Historical H100 operational caveat:
 
 - `EUR-IS-3` H100 fixed execution latency once a worker is running, but Runpod
   can still throttle or delay dispatch. In the measured warm full-quality run,
@@ -219,8 +222,8 @@ Blackwell benchmark evidence from 2026-04-22:
   image stack: CUDA `12.6` base image with `torch 2.6.0+cu124`. Blackwell GPUs
   required the CUDA `12.8` / PyTorch `2.7.1+cu128` image built from commit
   `329bb25079127997415789bb6d0fe9e5a539dc93`.
-- RTX PRO 6000 benchmark endpoint: `3co74imgg53e3q`, template `foidwyis7u`,
-  volume `0k9tnlryio`, data center `EUR-IS-1`.
+- RTX PRO 6000 endpoint: `3co74imgg53e3q`, template `foidwyis7u`, volume
+  `0k9tnlryio`, data center `EUR-IS-1`.
 - RTX PRO 6000 ping succeeded with `torch=2.7.1+cu128`,
   `delayTime=165.697s`, `executionTime=0.060s`.
 - RTX PRO 6000 first valid full-quality run:
@@ -232,12 +235,69 @@ Blackwell benchmark evidence from 2026-04-22:
 - RTX 5090 no-offload endpoint without network volume in high-stock `EUR-IS-2`
   also did not reach the ping handler after more than `13m`; it moved to
   provider `throttled` state. The job was cancelled and the endpoint deleted.
-- Execution-only cost estimate using Runpod public Serverless Flex pricing:
-  H100 warm run at `$4.18/hr` and `113.325s` is about `$0.1316` per completed
-  image, or `7.6` images per dollar. RTX PRO 6000 warm run at `$3.996/hr` and
-  `14.735s` is about `$0.0164` per completed image, or `61.1` images per
-  dollar. This excludes provider queue delay, startup, and exact billed worker
-  lifecycle time, which must be checked against Runpod billing records.
+- Additional RTX 5090 serverless isolation showed the same failure with an exact
+  `gpuTypeIds=["NVIDIA GeForce RTX 5090"]` endpoint and with Runpod's official
+  hello-world serverless image. This points to current Runpod 5090 serverless
+  provisioning/worker startup, not the Splash handler.
+- Direct RTX 5090 pod benchmark succeeded on `NVIDIA GeForce RTX 5090`
+  `32607 MiB`, driver `570.195.03`, `torch 2.7.1+cu128`, CUDA `12.8`.
+- RTX 5090 full-quality no-offload failed with CUDA OOM after source
+  localization and FLUX pipeline load. The process used about `31.15 GiB` of
+  `31.37 GiB`; a further `288 MiB` allocation failed. This confirms 32GB VRAM
+  is too tight for the full stack without offload.
+- RTX 5090 full-quality offload preserved `top_k=5`, four generated candidates,
+  source localization, generated localization, QA, and ranking. The selected
+  candidate was `reveal`.
+- RTX 5090 offload single request completed in `159.6007s`.
+- RTX 5090 offload same-process pair completed in `270.0225s`: first request
+  `143.6438s`, warm second request `125.3918s`.
+
+Live Pro 6000 switch evidence from 2026-04-21 America/Vancouver
+(`2026-04-22` UTC):
+
+- Azure broker `PCP_RUNPOD_ENDPOINT_ID` was switched to `3co74imgg53e3q`.
+- Pro 6000 endpoint was enabled with `workersMax=1`.
+- Broker invalid-source smoke reached the Pro worker and returned the expected
+  source-quality rejection:
+  job `367d9fa6-ae3b-4c1f-a118-d7972decfa6b-u1`, `delayTime=83.590s`,
+  `executionTime=31.952s`, status `invalid_source`.
+- Broker valid-source smoke succeeded:
+  job `a2f824ca-c7a0-4bc8-9f17-5c88a40a896d-u1`, `delayTime=0.800s`,
+  `executionTime=104.624s`, selected mode `reveal`.
+- Broker warm valid-source repeat succeeded:
+  job `cd94fbd0-47fc-4d54-9692-a86e4205d61c-u2`, `delayTime=0.803s`,
+  `executionTime=14.463s`, selected mode `reveal`.
+- Returned smoke-test images were saved locally under
+  `/tmp/splash-pro6000-live-smoke/`.
+- Stale H100 endpoint `7lurkouf1lpzfk`, H100 volume `vb7l0nhag6`, and H100
+  template `c95jm8srb3` were deleted after the Pro success smoke.
+
+Execution-only cost estimate using observed worker rates:
+
+| Backend | Mode | Time per image | Assumed rate | Cost per image | Images per dollar |
+| --- | --- | ---: | ---: | ---: | ---: |
+| H100 serverless | first measured full run | `460.792s` | `$2.99/hr` | `$0.3827` | `2.61` |
+| H100 serverless | warm measured full run | `113.325s` | `$2.99/hr` | `$0.0941` | `10.63` |
+| RTX PRO 6000 serverless | benchmark first full run | `92.059s` | `$1.89/hr` | `$0.0483` | `20.69` |
+| RTX PRO 6000 serverless | benchmark warm full run | `14.735s` | `$1.89/hr` | `$0.0077` | `129.27` |
+| RTX PRO 6000 serverless | live first valid smoke | `104.624s` | `$1.89/hr` | `$0.0549` | `18.21` |
+| RTX PRO 6000 serverless | live warm valid smoke | `14.463s` | `$1.89/hr` | `$0.0076` | `131.70` |
+| RTX 5090 pod | offload single request | `159.6007s` | `$0.99/hr` | `$0.0439` | `22.78` |
+| RTX 5090 pod | offload warm request | `125.3918s` | `$0.99/hr` | `$0.0345` | `29.00` |
+
+The 100GB Runpod network volume baseline is about `$7/month` at `$0.07/GB/month`.
+These estimates exclude provider queue delay, startup, and exact billed worker
+lifecycle time, which must be checked against Runpod billing records.
+
+Current recommendation:
+
+- Keep the public demo on RTX PRO 6000 serverless for the current low-traffic
+  demo use case.
+- Do not deploy on RTX 5090 serverless until Runpod fixes 5090 serverless worker
+  startup. The direct pod path is useful for diagnosis but is not a low-idle-cost
+  demo architecture.
+- Keep H100 deleted unless a future workload shows a specific H100-only
+  advantage. It was slower and less cost-efficient for this pipeline.
 
 Verified locally:
 
