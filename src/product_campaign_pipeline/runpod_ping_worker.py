@@ -39,6 +39,7 @@ def handle_ping_job(job: dict[str, Any]) -> dict[str, Any]:
             "python": sys.version.split()[0],
             "runpod": _package_version("runpod"),
         },
+        "image": _image_diagnostics(),
         "paths": _diagnostic_paths(),
     }
     LOGGER.info(
@@ -102,6 +103,14 @@ def _diagnostic_paths() -> dict[str, Any]:
         "worker_log_parent_exists": log_path.parent.exists(),
         "runpod_volume_exists": Path("/runpod-volume").exists(),
         "workspace_exists": Path("/workspace").exists(),
+    }
+
+
+def _image_diagnostics() -> dict[str, Any]:
+    return {
+        "build_sha": os.getenv("PCP_IMAGE_BUILD_SHA"),
+        "python_executable": sys.executable,
+        "virtual_env": os.getenv("VIRTUAL_ENV"),
     }
 
 

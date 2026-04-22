@@ -257,11 +257,13 @@ def _handle_internal_ping_job(*, request_id: str) -> dict[str, Any]:
         "transformers": _package_version("transformers"),
     }
     model_cache = _diagnose_model_cache()
+    image = _image_diagnostics()
     LOGGER.info(
-        "Runpod ping job completed. request_id=%s versions=%s model_cache=%s",
+        "Runpod ping job completed. request_id=%s versions=%s model_cache=%s image=%s",
         request_id,
         versions,
         model_cache,
+        image,
     )
     return {
         "status": "succeeded",
@@ -269,6 +271,15 @@ def _handle_internal_ping_job(*, request_id: str) -> dict[str, Any]:
         "summary": "Runpod worker ping completed.",
         "versions": versions,
         "model_cache": model_cache,
+        "image": image,
+    }
+
+
+def _image_diagnostics() -> dict[str, Any]:
+    return {
+        "build_sha": os.getenv("PCP_IMAGE_BUILD_SHA"),
+        "python_executable": sys.executable,
+        "virtual_env": os.getenv("VIRTUAL_ENV"),
     }
 
 

@@ -364,6 +364,7 @@ def test_handle_public_generation_job_runs_internal_ping_without_runtime_cache(
     assert payload["request_id"] == "ping-job"
     assert payload["versions"]["python"]
     assert "accelerate" in payload["versions"]
+    assert "build_sha" in payload["image"]
     assert payload["model_cache"]["source_kind"] == "runpod_cached_snapshot"
     assert payload["model_cache"]["resolved_model_load_source"] == str(snapshot.resolve())
 

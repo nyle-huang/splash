@@ -11,6 +11,7 @@ def test_handle_ping_job_returns_dispatch_diagnostics(
     monkeypatch.setenv("PCP_WORKER_LOG_PATH", "/tmp/pcp-runpod-test/runpod_worker.log")
     monkeypatch.setenv("HF_HOME", "/tmp/pcp-runpod-test/hf_home")
     monkeypatch.setenv("PCP_OUTPUT_ROOT", "/tmp/pcp-runpod-test/runtime_outputs")
+    monkeypatch.setenv("PCP_IMAGE_BUILD_SHA", "test-sha")
 
     payload = handle_ping_job(
         {
@@ -28,6 +29,7 @@ def test_handle_ping_job_returns_dispatch_diagnostics(
     assert payload["input_keys"] == ["_internal_ping", "request_id"]
     assert payload["versions"]["python"]
     assert "runpod" in payload["versions"]
+    assert payload["image"]["build_sha"] == "test-sha"
     assert payload["paths"]["worker_log_path"] == "/tmp/pcp-runpod-test/runpod_worker.log"
     assert payload["paths"]["hf_home"] == "/tmp/pcp-runpod-test/hf_home"
     assert payload["paths"]["output_root"] == "/tmp/pcp-runpod-test/runtime_outputs"

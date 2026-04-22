@@ -41,6 +41,8 @@ jobs:
           context: .
           file: Dockerfile.runpod.serverless
           push: true
+          build-args: |
+            PCP_IMAGE_BUILD_SHA=${{ github.sha }}
           tags: |
             ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
