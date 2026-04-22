@@ -189,14 +189,14 @@ Current public deployment:
 - Azure `PCP_RUNPOD_ENDPOINT_ID`: `3co74imgg53e3q`
 - Runpod endpoint: `splash-business-prior-demo-pro6000-euris1-volume`
 - Runpod endpoint id: `3co74imgg53e3q`
-- Runpod template: `splash-business-prior-serverless-pro6000-1c8c04c-lowercase-cache`
+- Runpod template: `splash-business-prior-serverless-pro6000-4d14fc6-slim-runtime`
 - Runpod template id: `foidwyis7u`
 - Runpod network volume: `splash-business-prior-cache-euris1-pro6000-100gb`
 - Runpod network volume id: `0k9tnlryio`
 - Runpod data center: `EUR-IS-1`
 - Runpod GPU: `NVIDIA RTX PRO 6000`
 - Runpod workers max: `1`
-- Worker image: `ghcr.io/nyle-huang/splash-business-prior-serverless:1c8c04c76abb4e8ec114c596193d426405716f8e`
+- Worker image: `ghcr.io/nyle-huang/splash-business-prior-serverless:4d14fc662f4dd21039073946ee210014beddfb90`
 
 Historical H100 deployment evidence from 2026-04-21:
 
@@ -348,6 +348,28 @@ Live Pro 6000 switch evidence from 2026-04-21 America/Vancouver
     `100s` to about `57s` on this smoke input, but it does not solve Runpod
     image/container dispatch stalls, which remain the largest unpredictable
     cold-start component.
+- Slim runtime image update:
+  - Worker image
+    `ghcr.io/nyle-huang/splash-business-prior-serverless:4d14fc662f4dd21039073946ee210014beddfb90`
+    moves build-only Python tooling into the Docker builder stage and runs the
+    final worker from `/opt/venv`. It does not change candidate count,
+    localizer use, generated-output localization, QA analysis, ranking,
+    generation steps, guidance, image size, model revision, CUDA base image, or
+    PyTorch package versions.
+  - GitHub Actions run `24763186407` built and pushed the image successfully in
+    `9m38s`.
+  - Live template `foidwyis7u` was updated to the slim image. Internal ping job
+    `0077e541-dfce-436a-afd2-9b9c24261abd-u1` reported build SHA
+    `4d14fc662f4dd21039073946ee210014beddfb90`, Python executable
+    `/opt/venv/bin/python`, `source_kind=runpod_cached_snapshot`, and resolved
+    the model load source to the lowercased Runpod cached snapshot path. The
+    same ping had `delayTime=613.095s`, `executionTime=0.102s`, proving the new
+    image is live but also that Runpod dispatch/provisioning can still dominate
+    cold starts before model loading.
+  - Full valid smoke job `4699a90d-775f-4195-8ab4-6c258c88b401-u2` on the slim
+    image completed with `delayTime=0.134s`, `executionTime=55.838s`,
+    `status=succeeded`, `invalid_source=null`, selected mode `hero`, and a final
+    output image saved locally under `/tmp/splash-slim-runtime-smoke/`.
 - A separate HF permission probe used a temporary diagnostic pod with the Pro
   network volume mounted at `/runpod-volume`; it did not target or modify
   `/runpod-volume/hf_home`.
@@ -373,6 +395,7 @@ Execution-only cost estimate using observed worker rates:
 | RTX PRO 6000 serverless | cached-model attempt warm valid run | `9.798s` | `$1.89/hr` | `$0.0051` | `194.66` |
 | RTX PRO 6000 serverless | lowercased cached snapshot first valid run | `56.760s` | `$1.89/hr` | `$0.0298` | `33.57` |
 | RTX PRO 6000 serverless | lowercased cached snapshot warm repeat | `11.877s` | `$1.89/hr` | `$0.0062` | `160.79` |
+| RTX PRO 6000 serverless | slim runtime cached valid smoke | `55.838s` | `$1.89/hr` | `$0.0293` | `34.13` |
 | RTX 5090 pod | offload single request | `159.6007s` | `$0.99/hr` | `$0.0439` | `22.78` |
 | RTX 5090 pod | offload warm request | `125.3918s` | `$0.99/hr` | `$0.0345` | `29.00` |
 
@@ -408,5 +431,7 @@ Verified live:
 Unverified here:
 
 - billed duration including model load
-- Runpod Console cached-model field availability on this account
 - end-to-end public browser session after enabling Runpod cached-model routing
+- whether the slim runtime image reduces dispatch latency across multiple
+  independent cold starts; the first measured slim-image ping still had a
+  `613.095s` provider delay
