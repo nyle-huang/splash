@@ -186,9 +186,9 @@ Current public deployment:
 
 - GitHub Pages site: `https://nyle-huang.github.io/splash/`
 - Azure broker: `https://splash-demo-broker-nh-y1.azurewebsites.net`
-- Azure `PCP_RUNPOD_ENDPOINT_ID`: `3co74imgg53e3q`
+- Azure `PCP_RUNPOD_ENDPOINT_ID`: `atl9cnzu9wzk53`
 - Runpod endpoint: `splash-business-prior-demo-pro6000-euris1-volume`
-- Runpod endpoint id: `3co74imgg53e3q`
+- Runpod endpoint id: `atl9cnzu9wzk53`
 - Runpod template: `splash-business-prior-serverless-pro6000-4d14fc6-slim-runtime`
 - Runpod template id: `foidwyis7u`
 - Runpod network volume: `splash-business-prior-cache-euris1-pro6000-100gb`
@@ -197,6 +197,9 @@ Current public deployment:
 - Runpod GPU: `NVIDIA RTX PRO 6000`
 - Runpod workers max: `1`
 - Worker image: `ghcr.io/nyle-huang/splash-business-prior-serverless:4d14fc662f4dd21039073946ee210014beddfb90`
+- Current health status: unhealthy as of 2026-04-22 UTC. The replacement
+  endpoint is configured consistently but has not assigned a worker for
+  `_internal_ping`.
 
 Historical H100 deployment evidence from 2026-04-21:
 
@@ -370,6 +373,44 @@ Live Pro 6000 switch evidence from 2026-04-21 America/Vancouver
     image completed with `delayTime=0.134s`, `executionTime=55.838s`,
     `status=succeeded`, `invalid_source=null`, selected mode `hero`, and a final
     output image saved locally under `/tmp/splash-slim-runtime-smoke/`.
+- Cached-model/FlashBoot and endpoint replacement investigation:
+  - Endpoint metadata with cached models reports `workersStandby=1`. Runpod
+    billing and worker-state docs indicate idle/standby state is not billed as
+    active GPU compute; active or initializing workers are billed. Account
+    `currentSpendPerHr` was about `$0.01/hr`, matching the 100GB network-volume
+    baseline rather than a PRO 6000 active worker.
+  - With cached-model FlashBoot/standby enabled, six short-gap measurements
+    reused worker `7bhq6lsqoaugml`. Ping median delay was `1.282s`; valid
+    generation median wall time was `15.678s` and median execution time was
+    `11.886s`. This measures warm retention, not independent cold starts.
+  - Disabling `flashboot` did not clear `workersStandby=1` and caused valid
+    generation job `2347238b-e899-4a16-a01e-ca2d1735dc32-u2` to remain
+    `IN_QUEUE` for 30 minutes before manual cancellation. `flashboot=true` was
+    restored afterward.
+  - Old endpoint `3co74imgg53e3q` then stopped assigning workers even for
+    `_internal_ping`. It was first set to `workersMax=0`, then deleted after
+    replacement endpoint creation and explicit approval.
+  - Replacement endpoint `atl9cnzu9wzk53` was created with template
+    `foidwyis7u`, network volume `0k9tnlryio`, PRO 6000 GPU, `workersMin=0`,
+    `workersMax=1`, `workersStandby=1`, `idleTimeout=60`, `flashboot=true`,
+    and `QUEUE_DELAY=4`. Azure `PCP_RUNPOD_ENDPOINT_ID` now points to
+    `atl9cnzu9wzk53`.
+  - Replacement endpoint `_internal_ping` jobs
+    `5caa9f62-b2d9-4153-910e-98c409d8eda2-u2`,
+    `dde7846a-a880-4d55-b3ae-7dce51795f8a-u2`,
+    `003744a4-c57d-45df-8353-9edb41401044-u1`, and
+    `cfe720eb-03a2-42ae-a2f3-8d3803c59e87-u1` all stayed `IN_QUEUE` until
+    manual timeout/cancellation. `REQUEST_COUNT=1`, old-endpoint capacity
+    disablement, and old-endpoint deletion did not restore worker assignment.
+  - Final observed replacement metadata: `worker_count=0`, `workersMin=0`,
+    `workersMax=1`, `workersStandby=1`, `idleTimeout=60`, `flashboot=true`,
+    `scalerType=QUEUE_DELAY`, `scalerValue=4`. Recent billing for replacement
+    endpoint `atl9cnzu9wzk53` showed `0s` billed worker time and `$0` endpoint
+    compute charge.
+  - Current conclusion: cached-model and slim-runtime changes are not the
+    failing path. The active failure boundary is Runpod serverless
+    provisioning/worker assignment for the PRO 6000 + network-volume +
+    cached-model endpoint configuration.
 - A separate HF permission probe used a temporary diagnostic pod with the Pro
   network volume mounted at `/runpod-volume`; it did not target or modify
   `/runpod-volume/hf_home`.
@@ -423,10 +464,11 @@ Verified locally:
 
 Verified live:
 
-- Azure broker submits to the RTX PRO 6000 endpoint.
-- RTX PRO 6000 endpoint can run the full-quality path with current candidate count,
-  source localizer, generated-output localizer, QA, ranking, and final image
-  output enabled.
+- Historical RTX PRO 6000 endpoint `3co74imgg53e3q` previously ran the
+  full-quality path with current candidate count, source localizer,
+  generated-output localizer, QA, ranking, and final image output enabled.
+- Current Azure broker points to replacement endpoint `atl9cnzu9wzk53`, but this
+  endpoint has not yet assigned a worker for `_internal_ping`.
 
 Unverified here:
 
@@ -435,3 +477,5 @@ Unverified here:
 - whether the slim runtime image reduces dispatch latency across multiple
   independent cold starts; the first measured slim-image ping still had a
   `613.095s` provider delay
+- root cause of Runpod failing to assign workers on replacement endpoint
+  `atl9cnzu9wzk53`
