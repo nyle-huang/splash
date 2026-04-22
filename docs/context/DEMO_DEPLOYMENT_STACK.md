@@ -189,14 +189,14 @@ Current public deployment:
 - Azure `PCP_RUNPOD_ENDPOINT_ID`: `3co74imgg53e3q`
 - Runpod endpoint: `splash-business-prior-demo-pro6000-euris1-volume`
 - Runpod endpoint id: `3co74imgg53e3q`
-- Runpod template: `splash-business-prior-serverless-pro6000-08ab95b-cache-diagnostics`
+- Runpod template: `splash-business-prior-serverless-pro6000-1c8c04c-lowercase-cache`
 - Runpod template id: `foidwyis7u`
 - Runpod network volume: `splash-business-prior-cache-euris1-pro6000-100gb`
 - Runpod network volume id: `0k9tnlryio`
 - Runpod data center: `EUR-IS-1`
 - Runpod GPU: `NVIDIA RTX PRO 6000`
 - Runpod workers max: `1`
-- Worker image: `ghcr.io/nyle-huang/splash-business-prior-serverless:08ab95b56ce1a1f0147d2140bfae108e8dc03add`
+- Worker image: `ghcr.io/nyle-huang/splash-business-prior-serverless:1c8c04c76abb4e8ec114c596193d426405716f8e`
 
 Historical H100 deployment evidence from 2026-04-21:
 
@@ -320,11 +320,34 @@ Live Pro 6000 switch evidence from 2026-04-21 America/Vancouver
     `d278cf4d-efe0-43cd-96e6-6e08b6c3aa29-u1` completed with
     `delayTime=0.137s`, `executionTime=9.798s`, wall-clock `10.581s`, selected
     mode `hero`.
-  - Current conclusion: the Console cached-model setting is not currently
-    producing a usable Runpod cached snapshot for this endpoint/account. The
-    remaining first-request latency is mostly worker/image dispatch plus
-    in-process model/runtime initialization, not candidate count, localizer, QA,
-    or ranking quality settings.
+  - The Console screenshot showed Runpod persisted the cached model as a
+    Hugging Face URL with the lowercased repo segment
+    `flux.2-klein-9b:92196c8e11f7b6cf2b7493e037d8c5345c559216`. The first
+    resolver only checked the canonical `FLUX.2-klein-9B` cache directory, so it
+    missed the mounted lowercased cached snapshot.
+  - Worker image
+    `ghcr.io/nyle-huang/splash-business-prior-serverless:1c8c04c76abb4e8ec114c596193d426405716f8e`
+    fixes that by matching Hugging Face cache directories case-insensitively
+    and accepting Hugging Face URL strings with pinned revisions.
+  - Internal ping job `258d0b2d-1152-4c7e-b47e-430f94fe320a-u1` verified
+    `source_kind=runpod_cached_snapshot` and resolved the model load source to
+    `/runpod-volume/huggingface-cache/hub/models--black-forest-labs--flux.2-klein-9b/snapshots/92196c8e11f7b6cf2b7493e037d8c5345c559216`.
+    The same ping had `delayTime=865.351s`, `executionTime=0.209s`, showing a
+    severe Runpod dispatch/provisioning stall independent of model loading.
+  - First valid job after that ping on the already-started worker,
+    `dd2df952-4617-470a-a6c8-4fccdc2e3da9-u2`, completed with
+    `delayTime=0.133s`, `executionTime=56.760s`, wall-clock `61.528s`,
+    selected mode `hero`. This isolates the cached-snapshot model/runtime
+    initialization path from container dispatch.
+  - Immediate warm repeat
+    `fd75f696-c30d-442c-90d3-d62d9876d722-u2` completed with
+    `delayTime=0.128s`, `executionTime=11.877s`, wall-clock `15.659s`, selected
+    mode `reveal`.
+  - Current conclusion: Runpod cached model now works through the lowercased
+    mounted snapshot. It reduces in-process first valid execution from about
+    `100s` to about `57s` on this smoke input, but it does not solve Runpod
+    image/container dispatch stalls, which remain the largest unpredictable
+    cold-start component.
 - A separate HF permission probe used a temporary diagnostic pod with the Pro
   network volume mounted at `/runpod-volume`; it did not target or modify
   `/runpod-volume/hf_home`.
@@ -348,6 +371,8 @@ Execution-only cost estimate using observed worker rates:
 | RTX PRO 6000 serverless | live warm valid smoke | `14.463s` | `$1.89/hr` | `$0.0076` | `131.70` |
 | RTX PRO 6000 serverless | cached-model attempt cold valid run | `100.333s` | `$1.89/hr` | `$0.0527` | `18.95` |
 | RTX PRO 6000 serverless | cached-model attempt warm valid run | `9.798s` | `$1.89/hr` | `$0.0051` | `194.66` |
+| RTX PRO 6000 serverless | lowercased cached snapshot first valid run | `56.760s` | `$1.89/hr` | `$0.0298` | `33.57` |
+| RTX PRO 6000 serverless | lowercased cached snapshot warm repeat | `11.877s` | `$1.89/hr` | `$0.0062` | `160.79` |
 | RTX 5090 pod | offload single request | `159.6007s` | `$0.99/hr` | `$0.0439` | `22.78` |
 | RTX 5090 pod | offload warm request | `125.3918s` | `$0.99/hr` | `$0.0345` | `29.00` |
 
