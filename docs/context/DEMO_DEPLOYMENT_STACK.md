@@ -213,6 +213,32 @@ Known operational caveat:
   can still throttle or delay dispatch. In the measured warm full-quality run,
   execution was `113.325s` but provider delay was `458.891s`.
 
+Blackwell benchmark evidence from 2026-04-22:
+
+- Root cause for the earlier RTX PRO 6000 startup failure was the old worker
+  image stack: CUDA `12.6` base image with `torch 2.6.0+cu124`. Blackwell GPUs
+  required the CUDA `12.8` / PyTorch `2.7.1+cu128` image built from commit
+  `329bb25079127997415789bb6d0fe9e5a539dc93`.
+- RTX PRO 6000 benchmark endpoint: `3co74imgg53e3q`, template `foidwyis7u`,
+  volume `0k9tnlryio`, data center `EUR-IS-1`.
+- RTX PRO 6000 ping succeeded with `torch=2.7.1+cu128`,
+  `delayTime=165.697s`, `executionTime=0.060s`.
+- RTX PRO 6000 first valid full-quality run:
+  `delayTime=0.784s`, `executionTime=92.059s`, selected mode `reveal`.
+- RTX PRO 6000 warm full-quality repeat:
+  `delayTime=0.764s`, `executionTime=14.735s`, selected mode `reveal`.
+- RTX 5090 no-offload endpoint with network volume in `EUR-NO-1` did not reach
+  the ping handler after more than `13m`; it stayed in worker initialization.
+- RTX 5090 no-offload endpoint without network volume in high-stock `EUR-IS-2`
+  also did not reach the ping handler after more than `13m`; it moved to
+  provider `throttled` state. The job was cancelled and the endpoint deleted.
+- Execution-only cost estimate using Runpod public Serverless Flex pricing:
+  H100 warm run at `$4.18/hr` and `113.325s` is about `$0.1316` per completed
+  image, or `7.6` images per dollar. RTX PRO 6000 warm run at `$3.996/hr` and
+  `14.735s` is about `$0.0164` per completed image, or `61.1` images per
+  dollar. This excludes provider queue delay, startup, and exact billed worker
+  lifecycle time, which must be checked against Runpod billing records.
+
 Verified locally:
 
 - request/result contract implementation exists
