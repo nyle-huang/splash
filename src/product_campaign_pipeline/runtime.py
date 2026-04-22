@@ -24,6 +24,8 @@ class BusinessPriorRuntimeSettings(BaseModel):
         "/workspace/product_campaign_pipeline/data/creative_ranking/retrieval_index.train_top1024.json"
     )
     model_id: str = DEFAULT_RUNTIME_MODEL_ID
+    model_load_path: str | None = None
+    cached_model_root: str | None = None
     device: str = "cuda"
     analysis_device: str = "cpu"
     localization_device: str = "cuda"
@@ -48,6 +50,8 @@ class BusinessPriorRuntimeSettings(BaseModel):
                 cls.model_fields["retrieval_index_path"].default,
             ),
             model_id=os.getenv("PCP_MODEL_ID", cls.model_fields["model_id"].default),
+            model_load_path=_env_optional("PCP_MODEL_LOAD_PATH"),
+            cached_model_root=_env_optional("PCP_RUNPOD_CACHED_MODEL_ROOT"),
             device=os.getenv("PCP_DEVICE", cls.model_fields["device"].default),
             analysis_device=os.getenv(
                 "PCP_ANALYSIS_DEVICE",
@@ -158,6 +162,8 @@ class RuntimeCache:
                 cpu_offload=self.settings.cpu_offload,
                 sequential_cpu_offload=self.settings.sequential_cpu_offload,
                 attention_slicing=self.settings.attention_slicing,
+                model_load_path=self.settings.model_load_path,
+                cached_model_root=self.settings.cached_model_root,
             )
         return self.client
 

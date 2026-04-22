@@ -279,6 +279,28 @@ Live Pro 6000 switch evidence from 2026-04-21 America/Vancouver
   `executionTime=14.584s`, selected mode `reveal`.
 - After the post-rotation smoke, the Pro endpoint was recycled
   `workersMax=0 -> 1` so future workers start from the updated template env.
+- The live Pro endpoint was then set to `idleTimeout=60` to avoid paying for a
+  longer idle window while still allowing immediate retries to stay warm.
+- Runpod cached-model investigation:
+  - Official Runpod docs describe endpoint-level cached models configured
+    through the Console `Model` field, with custom workers reading cached
+    snapshots from `/runpod-volume/huggingface-cache/hub/`.
+  - `runpodctl model list` returned
+    `Model Repo feature is not enabled for this user`.
+  - The documented REST endpoint schema returned no model/cache field for
+    endpoint `3co74imgg53e3q`, and a temporary zero-worker REST create probe with
+    a `model` field failed with HTTP `400` because `model` is not in the input
+    schema. No endpoint was created by that probe.
+  - GraphQL introspection from this machine failed with Cloudflare HTTP `403`
+    `error code: 1010`, so GraphQL did not prove or disprove cached-model
+    support.
+  - Chrome/Console inspection was blocked by local Computer Use permission, so
+    the UI path remains unverified here.
+  - The worker now preserves the public model id but resolves
+    `black-forest-labs/FLUX.2-klein-9B` to the Runpod cached snapshot path when
+    that directory is mounted. This changes model load source only; it does not
+    change candidate count, localizer, QA analysis, ranking, generation steps,
+    image size, guidance, or device policy.
 - A separate HF permission probe used a temporary diagnostic pod with the Pro
   network volume mounted at `/runpod-volume`; it did not target or modify
   `/runpod-volume/hf_home`.
@@ -327,12 +349,13 @@ Verified locally:
 
 Verified live:
 
-- Azure broker submits to the H100 endpoint.
-- H100 endpoint can run the full-quality path with current candidate count,
+- Azure broker submits to the RTX PRO 6000 endpoint.
+- RTX PRO 6000 endpoint can run the full-quality path with current candidate count,
   source localizer, generated-output localizer, QA, ranking, and final image
   output enabled.
 
 Unverified here:
 
 - billed duration including model load
-- end-to-end public browser session after the H100 endpoint switch
+- Runpod Console cached-model field availability on this account
+- end-to-end public browser session after enabling Runpod cached-model routing

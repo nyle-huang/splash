@@ -161,6 +161,13 @@ The future web UI should map that to a user-visible retry / unsupported-input fl
 
 - The backend is single-request oriented and GPU-bound.
 - FLUX loading and first-request latency can be high.
+- Keep `idleTimeout=60` for the cost-optimized public demo unless measured user
+  behavior justifies paying for a longer warm idle window.
+- If Runpod cached models are enabled in the Console, configure the endpoint
+  model as `black-forest-labs/FLUX.2-klein-9B`. The worker will automatically
+  prefer the mounted Hugging Face snapshot under
+  `/runpod-volume/huggingface-cache/hub/` when present, while preserving the
+  same public model id and full-quality pipeline settings.
 - Use the benchmarked runtime defaults before experimenting with higher steps or larger image sizes.
 - Treat `final_benchmark_candidate_v5` as the regression baseline for backend changes.
 

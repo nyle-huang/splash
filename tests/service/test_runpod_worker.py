@@ -113,6 +113,8 @@ def test_runtime_settings_parse_flux_offload_env(monkeypatch) -> None:
     monkeypatch.setenv("PCP_SEQUENTIAL_CPU_OFFLOAD", "1")
     monkeypatch.setenv("PCP_ATTENTION_SLICING", "false")
     monkeypatch.setenv("PCP_GENERATED_LOCALIZATION_DEVICE", "cuda")
+    monkeypatch.setenv("PCP_MODEL_LOAD_PATH", "/runpod-volume/huggingface-cache/hub/snapshot")
+    monkeypatch.setenv("PCP_RUNPOD_CACHED_MODEL_ROOT", "/runpod-volume/huggingface-cache/hub")
 
     settings = BusinessPriorRuntimeSettings.from_env()
 
@@ -120,6 +122,8 @@ def test_runtime_settings_parse_flux_offload_env(monkeypatch) -> None:
     assert settings.sequential_cpu_offload is True
     assert settings.attention_slicing is False
     assert settings.generated_localization_device == "cuda"
+    assert settings.model_load_path == "/runpod-volume/huggingface-cache/hub/snapshot"
+    assert settings.cached_model_root == "/runpod-volume/huggingface-cache/hub"
 
 
 def test_generated_localizer_defaults_to_cpu_when_generation_uses_cuda(

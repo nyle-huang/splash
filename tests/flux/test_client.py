@@ -40,7 +40,10 @@ class FluxClientTests(unittest.TestCase):
         self.assertEqual(request.width, 1024)
         self.assertEqual(request.height, 1024)
         self.assertEqual(request.seed, 11)
-        self.assertEqual(request.input_images, (str(input_path.resolve()), str(reference_path.resolve())))
+        self.assertEqual(
+            request.input_images,
+            (str(input_path.resolve()), str(reference_path.resolve())),
+        )
         self.assertIn('"subject":"Exact bottle hero shot"', request.prompt)
 
     def test_missing_local_reference_image_is_rejected_during_request_build(self) -> None:
@@ -62,6 +65,49 @@ class FluxClientTests(unittest.TestCase):
         self.assertEqual(len(images), 1)
         self.assertGreaterEqual(images[0].width, 64)
         self.assertGreaterEqual(images[0].height, 64)
+
+    def test_runpod_cached_model_snapshot_is_preferred_when_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "huggingface-cache" / "hub"
+            snapshot = (
+                root
+                / "models--black-forest-labs--FLUX.2-klein-9B"
+                / "snapshots"
+                / "abc123"
+            )
+            snapshot.mkdir(parents=True)
+            (snapshot / "model_index.json").write_text("{}", encoding="utf-8")
+            refs = root / "models--black-forest-labs--FLUX.2-klein-9B" / "refs"
+            refs.mkdir()
+            (refs / "main").write_text("abc123\n", encoding="utf-8")
+
+            client = Flux2KleinClient(cached_model_root=root)
+
+            self.assertEqual(
+                client._resolve_model_load_source(DEFAULT_MODEL_ID),
+                str(snapshot.resolve()),
+            )
+
+    def test_missing_runpod_cached_model_keeps_default_model_id_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            client = Flux2KleinClient(cached_model_root=Path(tmpdir) / "missing")
+
+            self.assertEqual(client._resolve_model_load_source(DEFAULT_MODEL_ID), DEFAULT_MODEL_ID)
+
+    def test_explicit_model_load_path_must_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            snapshot = Path(tmpdir) / "snapshot"
+            snapshot.mkdir()
+            (snapshot / "model_index.json").write_text("{}", encoding="utf-8")
+            client = Flux2KleinClient(model_load_path=snapshot)
+            self.assertEqual(
+                client._resolve_model_load_source(DEFAULT_MODEL_ID),
+                str(snapshot.resolve()),
+            )
+
+            missing = Flux2KleinClient(model_load_path=Path(tmpdir) / "missing")
+            with self.assertRaises(RuntimeError):
+                missing._resolve_model_load_source(DEFAULT_MODEL_ID)
 
 
 if __name__ == "__main__":

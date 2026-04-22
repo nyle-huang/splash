@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+import gc
 import io
-import json
 import os
 import re
 import time
 import urllib.parse
 import urllib.request
-import gc
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,8 +18,8 @@ from PIL import Image
 
 from product_campaign_pipeline.composer import FluxPrompt
 
-
 DEFAULT_MODEL_ID = "black-forest-labs/FLUX.2-klein-9B"
+DEFAULT_RUNPOD_CACHED_MODEL_ROOT = "/runpod-volume/huggingface-cache/hub"
 MIN_REFERENCE_IMAGE_SIDE = 64
 
 
@@ -86,6 +85,8 @@ class Flux2KleinClient:
         cpu_offload: bool = True,
         sequential_cpu_offload: bool = False,
         attention_slicing: bool = True,
+        model_load_path: str | os.PathLike[str] | None = None,
+        cached_model_root: str | os.PathLike[str] | None = None,
         pipeline_factory: Any | None = None,
     ) -> None:
         self.model_id = model_id
@@ -94,9 +95,11 @@ class Flux2KleinClient:
         self.cpu_offload = bool(cpu_offload)
         self.sequential_cpu_offload = bool(sequential_cpu_offload)
         self.attention_slicing = bool(attention_slicing)
+        self.model_load_path = None if model_load_path is None else os.fspath(model_load_path)
+        self.cached_model_root = _resolve_cached_model_root(cached_model_root)
         self._pipeline_factory = pipeline_factory
         self._pipeline: Any | None = None
-        self._loaded_signature: tuple[str, str, str, bool, bool, bool] | None = None
+        self._loaded_signature: tuple[str, str, str, str, bool, bool, bool] | None = None
 
     def build_request(
         self,
@@ -185,7 +188,9 @@ class Flux2KleinClient:
         started_at = time.perf_counter()
         output = pipe(**call_kwargs)
         image = output.images[0]
-        output_path = Path(request.output_path) if request.output_path else self._default_output_path(request)
+        output_path = (
+            Path(request.output_path) if request.output_path else self._default_output_path(request)
+        )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         image.save(output_path, format=_normalize_output_format(request.output_format))
         elapsed_seconds = time.perf_counter() - started_at
@@ -247,8 +252,10 @@ class Flux2KleinClient:
         return self._pipeline is not None
 
     def _ensure_pipeline(self, request: FluxGenerationRequest) -> tuple[Any, Any]:
+        model_load_source = self._resolve_model_load_source(request.model_id)
         signature = (
             request.model_id,
+            model_load_source,
             request.device,
             request.dtype,
             request.cpu_offload,
@@ -265,14 +272,15 @@ class Flux2KleinClient:
 
         try:
             pipe = pipeline_factory.from_pretrained(
-                request.model_id,
+                model_load_source,
                 torch_dtype=torch_dtype,
             )
         except Exception as exc:  # pragma: no cover - exercised only in live model loading
             raise MissingCredentialsError(
                 "Unable to load the gated FLUX.2 Klein model locally. "
                 "Confirm `hf auth whoami` succeeds on this VM and that the accepted token "
-                f"has access to `{request.model_id}`."
+                f"has access to `{request.model_id}`. "
+                f"Resolved load source: `{model_load_source}`."
             ) from exc
 
         if hasattr(pipe, "set_progress_bar_config"):
@@ -299,11 +307,31 @@ class Flux2KleinClient:
         self._loaded_signature = signature
         return pipe, torch
 
+    def _resolve_model_load_source(self, model_id: str) -> str:
+        if self.model_load_path:
+            path = Path(self.model_load_path).expanduser()
+            if not _is_diffusers_snapshot(path):
+                raise MissingModelAccessError(
+                    "Configured model load path is not a diffusers snapshot with "
+                    f"`model_index.json`: {path}"
+                )
+            return str(path.resolve())
+
+        cached_snapshot = _find_huggingface_snapshot(
+            model_id=model_id,
+            cache_root=self.cached_model_root,
+        )
+        if cached_snapshot is not None:
+            return str(cached_snapshot)
+        return model_id
+
     def _import_torch(self) -> Any:
         try:
             import torch
         except ImportError as exc:  # pragma: no cover - depends on local environment
-            raise MissingDependencyError("PyTorch is required for local FLUX.2 Klein generation.") from exc
+            raise MissingDependencyError(
+                "PyTorch is required for local FLUX.2 Klein generation."
+            ) from exc
         return torch
 
     def _import_pipeline_factory(self) -> Any:
@@ -334,10 +362,16 @@ class Flux2KleinClient:
         if candidate == "auto":
             return "cuda" if torch.cuda.is_available() else "cpu"
         if candidate.startswith("cuda") and not torch.cuda.is_available():
-            raise RuntimeError("CUDA was requested for local FLUX generation, but torch.cuda.is_available() is false.")
+            raise RuntimeError(
+                "CUDA was requested for local FLUX generation, but torch.cuda.is_available() "
+                "is false."
+            )
         return candidate
 
-    def _normalize_prompt(self, prompt: FluxPrompt | str | Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
+    def _normalize_prompt(
+        self,
+        prompt: FluxPrompt | str | Mapping[str, Any],
+    ) -> tuple[str, dict[str, Any]]:
         if isinstance(prompt, FluxPrompt):
             payload = prompt.as_dict()
             return prompt.to_bfl_prompt(), payload
@@ -400,6 +434,50 @@ def _normalize_output_format(value: str) -> str:
 
 def _slugify(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+
+
+def _resolve_cached_model_root(
+    cached_model_root: str | os.PathLike[str] | None,
+) -> Path | None:
+    if cached_model_root is not None:
+        value = os.fspath(cached_model_root).strip()
+    else:
+        value = os.getenv("PCP_RUNPOD_CACHED_MODEL_ROOT", DEFAULT_RUNPOD_CACHED_MODEL_ROOT).strip()
+    if not value:
+        return None
+    return Path(value).expanduser()
+
+
+def _find_huggingface_snapshot(*, model_id: str, cache_root: Path | None) -> Path | None:
+    if cache_root is None or not cache_root.exists() or not cache_root.is_dir():
+        return None
+    model_dir_name = "models--" + model_id.strip("/").replace("/", "--")
+    model_dir = cache_root / model_dir_name
+    if not model_dir.exists() or not model_dir.is_dir():
+        return None
+
+    ref_path = model_dir / "refs" / "main"
+    if ref_path.exists():
+        revision = ref_path.read_text(encoding="utf-8").strip()
+        snapshot = model_dir / "snapshots" / revision
+        if _is_diffusers_snapshot(snapshot):
+            return snapshot.resolve()
+
+    snapshots_dir = model_dir / "snapshots"
+    if not snapshots_dir.exists() or not snapshots_dir.is_dir():
+        return None
+    candidates = [
+        path
+        for path in snapshots_dir.iterdir()
+        if path.is_dir() and _is_diffusers_snapshot(path)
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: path.stat().st_mtime).resolve()
+
+
+def _is_diffusers_snapshot(path: Path) -> bool:
+    return path.exists() and path.is_dir() and (path / "model_index.json").exists()
 
 
 # Backward-compatible aliases for the original BFL-named client boundary.
