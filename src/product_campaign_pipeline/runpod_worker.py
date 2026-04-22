@@ -256,13 +256,61 @@ def _handle_internal_ping_job(*, request_id: str) -> dict[str, Any]:
         "torch": _package_version("torch"),
         "transformers": _package_version("transformers"),
     }
-    LOGGER.info("Runpod ping job completed. request_id=%s versions=%s", request_id, versions)
+    model_cache = _diagnose_model_cache()
+    LOGGER.info(
+        "Runpod ping job completed. request_id=%s versions=%s model_cache=%s",
+        request_id,
+        versions,
+        model_cache,
+    )
     return {
         "status": "succeeded",
         "request_id": request_id,
         "summary": "Runpod worker ping completed.",
         "versions": versions,
+        "model_cache": model_cache,
     }
+
+
+def _diagnose_model_cache() -> dict[str, Any]:
+    try:
+        from product_campaign_pipeline.flux import Flux2KleinClient
+        from product_campaign_pipeline.runtime import BusinessPriorRuntimeSettings
+
+        settings = BusinessPriorRuntimeSettings.from_env()
+        client = Flux2KleinClient(
+            model_id=settings.model_id,
+            device=settings.device,
+            dtype="bfloat16",
+            cpu_offload=settings.cpu_offload,
+            sequential_cpu_offload=settings.sequential_cpu_offload,
+            attention_slicing=settings.attention_slicing,
+            model_load_path=settings.model_load_path,
+            cached_model_root=settings.cached_model_root,
+        )
+        source = client._resolve_model_load_source(settings.model_id)
+        root = client.cached_model_root
+        root_text = None if root is None else str(root)
+        source_path = Path(source)
+        if settings.model_load_path:
+            source_kind = "explicit_model_load_path"
+        elif source != settings.model_id:
+            source_kind = "runpod_cached_snapshot"
+        else:
+            source_kind = "model_id"
+        return {
+            "model_id": settings.model_id,
+            "source_kind": source_kind,
+            "resolved_model_load_source": source,
+            "cached_model_root": root_text,
+            "cached_model_root_exists": bool(root and root.exists()),
+            "resolved_model_load_source_exists": source_path.exists(),
+        }
+    except Exception as exc:  # pragma: no cover - live diagnostic guard
+        return {
+            "source_kind": "error",
+            "error": str(exc),
+        }
 
 
 def _is_internal_ping_job(job: dict[str, Any]) -> bool:

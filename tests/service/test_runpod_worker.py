@@ -333,7 +333,24 @@ def test_handle_public_generation_job_runs_internal_warmup(tmp_path: Path) -> No
     warmup_mock.assert_called_once_with(include_generation=True)
 
 
-def test_handle_public_generation_job_runs_internal_ping_without_runtime_cache() -> None:
+def test_handle_public_generation_job_runs_internal_ping_without_runtime_cache(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "huggingface-cache" / "hub"
+    snapshot = (
+        root
+        / "models--black-forest-labs--FLUX.2-klein-9B"
+        / "snapshots"
+        / "abc123"
+    )
+    snapshot.mkdir(parents=True)
+    (snapshot / "model_index.json").write_text("{}", encoding="utf-8")
+    refs = root / "models--black-forest-labs--FLUX.2-klein-9B" / "refs"
+    refs.mkdir()
+    (refs / "main").write_text("abc123\n", encoding="utf-8")
+    monkeypatch.setenv("PCP_RUNPOD_CACHED_MODEL_ROOT", str(root))
+
     payload = handle_public_generation_job(
         {
             "id": "ping-job",
@@ -347,6 +364,8 @@ def test_handle_public_generation_job_runs_internal_ping_without_runtime_cache()
     assert payload["request_id"] == "ping-job"
     assert payload["versions"]["python"]
     assert "accelerate" in payload["versions"]
+    assert payload["model_cache"]["source_kind"] == "runpod_cached_snapshot"
+    assert payload["model_cache"]["resolved_model_load_source"] == str(snapshot.resolve())
 
 
 def test_startup_warmup_disabled_does_not_initialize_runtime_cache(monkeypatch) -> None:
