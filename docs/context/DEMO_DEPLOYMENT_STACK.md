@@ -279,6 +279,16 @@ Live Pro 6000 switch evidence from 2026-04-21 America/Vancouver
   `executionTime=14.584s`, selected mode `reveal`.
 - After the post-rotation smoke, the Pro endpoint was recycled
   `workersMax=0 -> 1` so future workers start from the updated template env.
+- A separate HF permission probe used a temporary diagnostic pod with the Pro
+  network volume mounted at `/runpod-volume`; it did not target or modify
+  `/runpod-volume/hf_home`.
+- The probe set isolated `HF_HOME=/runpod-volume/hf_token_permission_probe_env`,
+  created a temporary `/runpod-volume/hf_token_permission_probe_*` directory,
+  verified `black-forest-labs/FLUX.2-klein-9B` metadata access with HTTP `200`,
+  downloaded only `model_index.json` (`446` bytes) with HTTP `200`, then removed
+  only the temporary probe directory. The probe reported `cleanup_ok=true`.
+- The temporary diagnostic pod was deleted after the probe, and `runpodctl pod
+  list` returned `[]`.
 
 Execution-only cost estimate using observed worker rates:
 
