@@ -271,6 +271,14 @@ Live Pro 6000 switch evidence from 2026-04-21 America/Vancouver
   `/tmp/splash-pro6000-live-smoke/`.
 - Stale H100 endpoint `7lurkouf1lpzfk`, H100 volume `vb7l0nhag6`, and H100
   template `c95jm8srb3` were deleted after the Pro success smoke.
+- HF token was rotated after the old broad-permission token was deleted. The new
+  token is recorded only by SHA-256 prefix `1a5ad8d5ec8b`; no token value is
+  stored in this repository.
+- Post-rotation broker smoke succeeded:
+  job `e5fe3de5-7f16-4a6d-bc32-6a5a735e8208-u2`, `delayTime=0.804s`,
+  `executionTime=14.584s`, selected mode `reveal`.
+- After the post-rotation smoke, the Pro endpoint was recycled
+  `workersMax=0 -> 1` so future workers start from the updated template env.
 
 Execution-only cost estimate using observed worker rates:
 
