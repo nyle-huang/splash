@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
@@ -36,7 +36,9 @@ COPY data/creative_ranking/retrieval_index.train_top1024.json ./data/creative_ra
 
 RUN python3 -m venv /opt/venv \
  && pip install --upgrade pip setuptools wheel \
- && pip install --index-url https://download.pytorch.org/whl/cu124 torch torchvision \
+ && pip install --index-url https://download.pytorch.org/whl/cu128 \
+    torch==2.7.1 \
+    torchvision==0.22.1 \
  && pip install -e ".[generation,vision,storage,gpu]" \
  && pip install -r requirements.runpod.txt
 
