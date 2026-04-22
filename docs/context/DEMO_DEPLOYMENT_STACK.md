@@ -189,14 +189,14 @@ Current public deployment:
 - Azure `PCP_RUNPOD_ENDPOINT_ID`: `3co74imgg53e3q`
 - Runpod endpoint: `splash-business-prior-demo-pro6000-euris1-volume`
 - Runpod endpoint id: `3co74imgg53e3q`
-- Runpod template: `splash-business-prior-serverless-pro6000-329bb25-nooffload`
+- Runpod template: `splash-business-prior-serverless-pro6000-08ab95b-cache-diagnostics`
 - Runpod template id: `foidwyis7u`
 - Runpod network volume: `splash-business-prior-cache-euris1-pro6000-100gb`
 - Runpod network volume id: `0k9tnlryio`
 - Runpod data center: `EUR-IS-1`
 - Runpod GPU: `NVIDIA RTX PRO 6000`
 - Runpod workers max: `1`
-- Worker image: `ghcr.io/nyle-huang/splash-business-prior-serverless:329bb25079127997415789bb6d0fe9e5a539dc93`
+- Worker image: `ghcr.io/nyle-huang/splash-business-prior-serverless:08ab95b56ce1a1f0147d2140bfae108e8dc03add`
 
 Historical H100 deployment evidence from 2026-04-21:
 
@@ -301,6 +301,30 @@ Live Pro 6000 switch evidence from 2026-04-21 America/Vancouver
     that directory is mounted. This changes model load source only; it does not
     change candidate count, localizer, QA analysis, ranking, generation steps,
     image size, guidance, or device policy.
+  - After the Console model field was saved and the worker image was updated,
+    internal ping job `cb04bd4e-5059-4334-b85d-06cf4dd47a34-u2` reported
+    `cached_model_root_exists=true` for
+    `/runpod-volume/huggingface-cache/hub`, but
+    `source_kind=model_id` and
+    `resolved_model_load_source=black-forest-labs/FLUX.2-klein-9B`. That means
+    the expected Runpod cached snapshot was not present on the mounted volume;
+    the live worker is still using the normal Hugging Face model id path.
+  - The same ping had `delayTime=94.780s` and `executionTime=0.085s`, which
+    shows an image/container dispatch cold-start component can still dominate
+    even before model loading.
+  - Direct valid-source benchmark after the cached-snapshot worker change:
+    cold job `06597cb7-e136-4d97-bcc6-faec7288eb5a-u1` completed with
+    `delayTime=6.159s`, `executionTime=100.333s`, wall-clock `107.827s`,
+    selected mode `hero`.
+  - Immediate warm repeat
+    `d278cf4d-efe0-43cd-96e6-6e08b6c3aa29-u1` completed with
+    `delayTime=0.137s`, `executionTime=9.798s`, wall-clock `10.581s`, selected
+    mode `hero`.
+  - Current conclusion: the Console cached-model setting is not currently
+    producing a usable Runpod cached snapshot for this endpoint/account. The
+    remaining first-request latency is mostly worker/image dispatch plus
+    in-process model/runtime initialization, not candidate count, localizer, QA,
+    or ranking quality settings.
 - A separate HF permission probe used a temporary diagnostic pod with the Pro
   network volume mounted at `/runpod-volume`; it did not target or modify
   `/runpod-volume/hf_home`.
@@ -322,6 +346,8 @@ Execution-only cost estimate using observed worker rates:
 | RTX PRO 6000 serverless | benchmark warm full run | `14.735s` | `$1.89/hr` | `$0.0077` | `129.27` |
 | RTX PRO 6000 serverless | live first valid smoke | `104.624s` | `$1.89/hr` | `$0.0549` | `18.21` |
 | RTX PRO 6000 serverless | live warm valid smoke | `14.463s` | `$1.89/hr` | `$0.0076` | `131.70` |
+| RTX PRO 6000 serverless | cached-model attempt cold valid run | `100.333s` | `$1.89/hr` | `$0.0527` | `18.95` |
+| RTX PRO 6000 serverless | cached-model attempt warm valid run | `9.798s` | `$1.89/hr` | `$0.0051` | `194.66` |
 | RTX 5090 pod | offload single request | `159.6007s` | `$0.99/hr` | `$0.0439` | `22.78` |
 | RTX 5090 pod | offload warm request | `125.3918s` | `$0.99/hr` | `$0.0345` | `29.00` |
 
