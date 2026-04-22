@@ -88,6 +88,48 @@ class FluxClientTests(unittest.TestCase):
                 str(snapshot.resolve()),
             )
 
+    def test_runpod_cached_model_snapshot_matching_is_case_insensitive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "huggingface-cache" / "hub"
+            snapshot = (
+                root
+                / "models--black-forest-labs--flux.2-klein-9b"
+                / "snapshots"
+                / "92196c8e11f7b6cf2b7493e037d8c5345c559216"
+            )
+            snapshot.mkdir(parents=True)
+            (snapshot / "model_index.json").write_text("{}", encoding="utf-8")
+            client = Flux2KleinClient(cached_model_root=root)
+
+            self.assertEqual(
+                client._resolve_model_load_source(DEFAULT_MODEL_ID),
+                str(snapshot.resolve()),
+            )
+
+    def test_runpod_cached_model_snapshot_accepts_huggingface_url_with_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "huggingface-cache" / "hub"
+            snapshot = (
+                root
+                / "models--black-forest-labs--flux.2-klein-9b"
+                / "snapshots"
+                / "92196c8e11f7b6cf2b7493e037d8c5345c559216"
+            )
+            snapshot.mkdir(parents=True)
+            (snapshot / "model_index.json").write_text("{}", encoding="utf-8")
+            client = Flux2KleinClient(
+                model_id=(
+                    "https://huggingface.co/black-forest-labs/"
+                    "flux.2-klein-9b:92196c8e11f7b6cf2b7493e037d8c5345c559216"
+                ),
+                cached_model_root=root,
+            )
+
+            self.assertEqual(
+                client._resolve_model_load_source(client.model_id),
+                str(snapshot.resolve()),
+            )
+
     def test_missing_runpod_cached_model_keeps_default_model_id_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             client = Flux2KleinClient(cached_model_root=Path(tmpdir) / "missing")

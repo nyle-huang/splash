@@ -451,11 +451,58 @@ def _resolve_cached_model_root(
 def _find_huggingface_snapshot(*, model_id: str, cache_root: Path | None) -> Path | None:
     if cache_root is None or not cache_root.exists() or not cache_root.is_dir():
         return None
-    model_dir_name = "models--" + model_id.strip("/").replace("/", "--")
-    model_dir = cache_root / model_dir_name
-    if not model_dir.exists() or not model_dir.is_dir():
-        return None
+    for model_dir in _candidate_huggingface_model_dirs(model_id=model_id, cache_root=cache_root):
+        snapshot = _find_huggingface_snapshot_in_model_dir(model_dir)
+        if snapshot is not None:
+            return snapshot
+    return None
 
+
+def _candidate_huggingface_model_dirs(*, model_id: str, cache_root: Path) -> list[Path]:
+    model_dir_name = "models--" + _normalize_huggingface_model_id(model_id).replace("/", "--")
+    seen: set[Path] = set()
+    candidates: list[Path] = []
+    try:
+        children = list(cache_root.iterdir())
+    except OSError:
+        children = []
+    for path in children:
+        if path in seen or not path.is_dir():
+            continue
+        if path.name.lower() != model_dir_name.lower():
+            continue
+        seen.add(path)
+        candidates.append(path)
+    for name in (model_dir_name, model_dir_name.lower()):
+        path = cache_root / name
+        if path in seen or not path.exists() or not path.is_dir():
+            continue
+        seen.add(path)
+        candidates.append(path)
+    return candidates
+
+
+def _normalize_huggingface_model_id(model_id: str) -> str:
+    value = model_id.strip()
+    if not value:
+        return value
+    candidate = value if "://" in value else f"https://{value}"
+    parsed = urllib.parse.urlparse(candidate)
+    if parsed.netloc not in {"huggingface.co", "www.huggingface.co"}:
+        return value.strip("/")
+
+    parts = [part for part in parsed.path.split("/") if part]
+    if parts[:1] == ["models"]:
+        parts = parts[1:]
+    if len(parts) < 2:
+        return value.strip("/")
+    repo_parts = parts[:2]
+    if ":" in repo_parts[1]:
+        repo_parts[1] = repo_parts[1].split(":", 1)[0]
+    return "/".join(repo_parts)
+
+
+def _find_huggingface_snapshot_in_model_dir(model_dir: Path) -> Path | None:
     ref_path = model_dir / "refs" / "main"
     if ref_path.exists():
         revision = ref_path.read_text(encoding="utf-8").strip()
